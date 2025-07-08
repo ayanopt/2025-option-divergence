@@ -2,7 +2,7 @@ from alpaca.data.live.option import OptionDataStream
 from alpaca.data.live.stock import StockDataStream
 from alpaca.data.historical.option import OptionHistoricalDataClient
 from alpaca.data.requests import OptionChainRequest, OptionSnapshotRequest
-import asyncio,sys,time,datetime,csv
+import math,datetime,csv
 from alpaca_token import KEY, SECRET
 from util.calculations import black_scholes_greeks, get_time_to_expiry, implied_volatility
 
@@ -13,6 +13,12 @@ today = datetime.date.today()
 csv_file = open(f'../data/option_data_{today.month}_{today.day}.csv', 'w', newline='')
 csv_writer = csv.writer(csv_file)
 csv_writer.writerow(['timestamp', 'symbol', 'option_type', 'strike', 'latest_trade_price', 'latest_quote_bid', 'latest_quote_ask', 'implied_volatility', 'delta', 'gamma', 'theta', 'vega', 'rho', 'price'])
+
+def get_option_chain_offline(spy_price):
+    lower_bound = math.floor(spy_price * 0.99)
+    upper_bound = math.ceil(spy_price * 1.01)
+    # SPY250707P00624000
+    return [f"SPY{today.strftime('%y%m%d')}C{strike:05d}000" for strike in range(lower_bound, upper_bound + 1)], [f"SPY{today.strftime('%y%m%d')}P{strike:05d}000" for strike in range(lower_bound, upper_bound + 1)]
 
 def get_option_chain(spy_price):
     lower_bound = spy_price * 0.99
@@ -73,12 +79,14 @@ async def load_price(data):
     print(f"SPY Price: ${current_spy_price}")
     
     now = datetime.datetime.now()
-    if last_csv_update and (now - last_csv_update).seconds < 60:
+    cadence = 10 # TODO: play around with
+    if last_csv_update and (now - last_csv_update).seconds < cadence:
         return
     
     try:
-        calls, puts = get_option_chain(current_spy_price)
+        calls, puts = get_option_chain_offline(current_spy_price)
         all_symbols = calls + puts
+        print("Fetching details for", calls, puts)
         
         if all_symbols:
             snapshot_request = OptionSnapshotRequest(symbol_or_symbols=all_symbols)
@@ -97,7 +105,7 @@ async def load_price(data):
     except Exception as e:
         print(f"Error getting option data: {e}")
     
-    if now.hour == 15 and now.minute >= 45:
+    if now.hour == 16 and now.minute >= 45:
         csv_file.close()
         await price_stream.stop_ws()
 
