@@ -1,0 +1,312 @@
+---
+title: "SPY Option Divergence Analysis"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(lubridate)
+library(plotly)
+library(corrplot)
+library(DT)
+```
+
+# SPY Option Divergence Analysis
+
+This analysis explores divergence patterns between SPY call and put options using real-time data collected from July 8-9, 2025.
+
+## Data Loading and Preprocessing
+
+```{r load_data}
+# Load the collected option data
+data_files <- list.files("../data", pattern = "option_data.*\.csv", full.names = TRUE)
+
+# Combine all data files
+option_data <- map_dfr(data_files, read_csv) %>%
+  mutate(
+    timestamp = as_datetime(timestamp),
+    strike = as.numeric(strike),
+    option_type = factor(option_type),
+    moneyness = ifelse(option_type == "call", 
+                      strike / price, 
+                      price / strike),
+    time_to_expiry = as.numeric(difftime(as.Date("2025-07-09"), as.Date(timestamp), units = "days"))
+  ) %>%
+  filter(!is.na(latest_trade_price), !is.na(implied_volatility)) %>%
+  arrange(timestamp, strike)
+
+cat("Loaded", nrow(option_data), "option records\n")
+cat("Date range:", as.character(range(option_data$timestamp)), "\n")
+cat("Strike range:", range(option_data$strike, na.rm = TRUE), "\n")
+```
+
+## Data Overview
+
+```{r data_summary}
+# Summary statistics
+option_data %>%
+  group_by(option_type) %>%
+  summarise(
+    count = n(),
+    avg_price = mean(latest_trade_price, na.rm = TRUE),
+    avg_iv = mean(implied_volatility, na.rm = TRUE),
+    avg_delta = mean(abs(delta), na.rm = TRUE),
+    avg_gamma = mean(gamma, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  knitr::kable(digits = 4, caption = "Option Summary by Type")
+```
+
+```{r price_evolution}
+# SPY price evolution
+spy_prices <- option_data %>%
+  select(timestamp, price) %>%
+  distinct() %>%
+  arrange(timestamp)
+
+ggplot(spy_prices, aes(x = timestamp, y = price)) +
+  geom_line(color = "blue", size = 1) +
+  labs(title = "SPY Price Evolution",
+       x = "Time", y = "SPY Price ($)") +
+  theme_minimal()
+```
+
+## Option Divergence Analysis
+
+### 1. Call-Put Price Divergence
+
+```{r call_put_divergence}
+# Calculate call-put divergence for ATM options
+atm_options <- option_data %>%
+  mutate(distance_from_atm = abs(strike - price)) %>%
+  group_by(timestamp, option_type) %>%
+  slice_min(distance_from_atm, n = 1) %>%
+  ungroup() %>%
+  select(timestamp, option_type, latest_trade_price, implied_volatility, delta, gamma) %>%
+  pivot_wider(
+    names_from = option_type,
+    values_from = c(latest_trade_price, implied_volatility, delta, gamma),
+    names_sep = "_"
+  ) %>%
+  mutate(
+    price_divergence = latest_trade_price_call - latest_trade_price_put,
+    iv_divergence = implied_volatility_call - implied_volatility_put,
+    delta_divergence = abs(delta_call) - abs(delta_put)
+  )
+
+# Plot price divergence over time
+ggplot(atm_options, aes(x = timestamp, y = price_divergence)) +
+  geom_line(color = "red", size = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  labs(title = "ATM Call-Put Price Divergence Over Time",
+       x = "Time", y = "Price Divergence ($)") +
+  theme_minimal()
+```
+
+### 2. Implied Volatility Skew Analysis
+
+```{r iv_skew}
+# Calculate IV skew by moneyness
+iv_skew <- option_data %>%
+  filter(time_to_expiry > 0, !is.na(implied_volatility)) %>%
+  mutate(
+    moneyness_bucket = round(moneyness, 2),
+    hour = hour(timestamp)
+  ) %>%
+  group_by(moneyness_bucket, option_type, hour) %>%
+  summarise(
+    avg_iv = mean(implied_volatility, na.rm = TRUE),
+    count = n(),
+    .groups = 'drop'
+  ) %>%
+  filter(count >= 5)  # Filter for sufficient data points
+
+# Plot IV skew
+ggplot(iv_skew, aes(x = moneyness_bucket, y = avg_iv, color = option_type)) +
+  geom_line(size = 1) +
+  geom_point() +
+  facet_wrap(~hour, labeller = label_both) +
+  labs(title = "Implied Volatility Skew by Hour",
+       x = "Moneyness (Strike/Spot)", y = "Average IV",
+       color = "Option Type") +
+  theme_minimal() +
+  scale_color_manual(values = c("call" = "green", "put" = "red"))
+```
+
+### 3. Greeks Divergence
+
+```{r greeks_analysis}
+# Analyze delta divergence patterns
+delta_analysis <- option_data %>%
+  filter(!is.na(delta), abs(moneyness - 1) < 0.05) %>%  # Near ATM
+  group_by(timestamp, option_type) %>%
+  summarise(
+    avg_delta = mean(abs(delta), na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  pivot_wider(
+    names_from = option_type,
+    values_from = avg_delta,
+    names_prefix = "delta_"
+  ) %>%
+  mutate(
+    delta_divergence = delta_call - delta_put
+  )
+
+# Plot delta divergence
+ggplot(delta_analysis, aes(x = timestamp, y = delta_divergence)) +
+  geom_line(color = "purple", size = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  labs(title = "ATM Delta Divergence Over Time",
+       x = "Time", y = "Delta Divergence") +
+  theme_minimal()
+```
+
+### 4. Volume-Weighted Divergence
+
+```{r volume_analysis}
+# Analyze trading activity patterns
+trading_activity <- option_data %>%
+  filter(!is.na(latest_trade_price)) %>%
+  mutate(
+    hour = hour(timestamp),
+    minute_bucket = floor(minute(timestamp) / 10) * 10
+  ) %>%
+  group_by(hour, minute_bucket, option_type) %>%
+  summarise(
+    trade_count = n(),
+    avg_price = mean(latest_trade_price, na.rm = TRUE),
+    avg_iv = mean(implied_volatility, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+# Plot trading activity
+ggplot(trading_activity, aes(x = paste(hour, minute_bucket, sep = ":"), 
+                            y = trade_count, fill = option_type)) +
+  geom_col(position = "dodge") +
+  labs(title = "Trading Activity by Time and Option Type",
+       x = "Time (Hour:Minute)", y = "Trade Count",
+       fill = "Option Type") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = c("call" = "green", "put" = "red"))
+```
+
+## Correlation Analysis
+
+```{r correlation_analysis}
+# Create correlation matrix for key metrics
+corr_data <- atm_options %>%
+  select(
+    price_divergence, iv_divergence, delta_divergence,
+    latest_trade_price_call, latest_trade_price_put,
+    implied_volatility_call, implied_volatility_put
+  ) %>%
+  filter(complete.cases(.)) %>%
+  cor()
+
+# Plot correlation matrix
+corrplot(corr_data, method = "color", type = "upper", 
+         order = "hclust", tl.cex = 0.8, tl.col = "black")
+title("Correlation Matrix: Option Divergence Metrics")
+```
+
+## Divergence Signals
+
+```{r divergence_signals}
+# Calculate rolling divergence metrics
+rolling_window <- 10  # 10-period rolling window
+
+divergence_signals <- atm_options %>%
+  arrange(timestamp) %>%
+  mutate(
+    price_div_ma = zoo::rollmean(price_divergence, rolling_window, fill = NA, align = "right"),
+    price_div_std = zoo::rollapply(price_divergence, rolling_window, sd, fill = NA, align = "right"),
+    price_div_zscore = (price_divergence - price_div_ma) / price_div_std,
+    
+    iv_div_ma = zoo::rollmean(iv_divergence, rolling_window, fill = NA, align = "right"),
+    iv_div_std = zoo::rollapply(iv_divergence, rolling_window, sd, fill = NA, align = "right"),
+    iv_div_zscore = (iv_divergence - iv_div_ma) / iv_div_std,
+    
+    # Signal flags
+    extreme_price_div = abs(price_div_zscore) > 2,
+    extreme_iv_div = abs(iv_div_zscore) > 2
+  )
+
+# Plot divergence signals
+p1 <- ggplot(divergence_signals, aes(x = timestamp)) +
+  geom_line(aes(y = price_div_zscore), color = "blue") +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red", alpha = 0.7) +
+  geom_point(data = filter(divergence_signals, extreme_price_div), 
+             aes(y = price_div_zscore), color = "red", size = 2) +
+  labs(title = "Price Divergence Z-Score", x = "Time", y = "Z-Score") +
+  theme_minimal()
+
+p2 <- ggplot(divergence_signals, aes(x = timestamp)) +
+  geom_line(aes(y = iv_div_zscore), color = "green") +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red", alpha = 0.7) +
+  geom_point(data = filter(divergence_signals, extreme_iv_div), 
+             aes(y = iv_div_zscore), color = "red", size = 2) +
+  labs(title = "IV Divergence Z-Score", x = "Time", y = "Z-Score") +
+  theme_minimal()
+
+gridExtra::grid.arrange(p1, p2, ncol = 1)
+```
+
+## Summary Statistics
+
+```{r summary_stats}
+# Summary of extreme divergence events
+extreme_events <- divergence_signals %>%
+  filter(extreme_price_div | extreme_iv_div) %>%
+  select(timestamp, price_divergence, iv_divergence, price_div_zscore, iv_div_zscore)
+
+cat("Extreme divergence events detected:", nrow(extreme_events), "\n")
+
+if(nrow(extreme_events) > 0) {
+  extreme_events %>%
+    arrange(desc(abs(price_div_zscore))) %>%
+    head(10) %>%
+    knitr::kable(digits = 4, caption = "Top 10 Extreme Divergence Events")
+}
+```
+
+## Interactive Visualization
+
+```{r interactive_plot}
+# Create interactive plot of key metrics
+interactive_data <- divergence_signals %>%
+  select(timestamp, price_divergence, iv_divergence, price_div_zscore, iv_div_zscore) %>%
+  filter(complete.cases(.))
+
+p_interactive <- plot_ly(interactive_data, x = ~timestamp) %>%
+  add_lines(y = ~price_divergence, name = "Price Divergence", line = list(color = "blue")) %>%
+  add_lines(y = ~iv_divergence * 10, name = "IV Divergence (x10)", line = list(color = "red")) %>%
+  layout(
+    title = "Option Divergence Metrics Over Time",
+    xaxis = list(title = "Time"),
+    yaxis = list(title = "Divergence Value"),
+    hovermode = "x unified"
+  )
+
+p_interactive
+```
+
+## Conclusions
+
+This analysis reveals several key insights about SPY option divergence patterns:
+
+1. **Price Divergence**: [Add observations about call-put price relationships]
+2. **Volatility Skew**: [Add observations about IV patterns]
+3. **Greeks Behavior**: [Add observations about delta and other Greeks]
+4. **Trading Patterns**: [Add observations about volume and timing]
+5. **Signal Detection**: [Add observations about extreme events]
+
+### Next Steps
+
+- Implement real-time divergence detection algorithms
+- Develop trading signals based on identified patterns
+- Backtest strategies using historical divergence events
+- Expand analysis to include more option chains and timeframes

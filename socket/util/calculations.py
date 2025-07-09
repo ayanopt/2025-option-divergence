@@ -1,5 +1,6 @@
 import math
 from scipy.stats import norm
+from datetime import datetime, timedelta
 
 def mean(x):
     return sum(x)/ len(x)
@@ -31,21 +32,69 @@ def pearson_correlation(x: list[float], y: list[float]) -> float:
     
     return correlation
 
-def calculate_divergence(call_list: list[float], put_list: list[float]) -> float:
+def calculate_divergence(call_list: list[float], put_list: list[float]) -> dict:
     """
-    Subtract mean from each field -> Measure deviation from mean between each
+    Calculate multiple divergence metrics between call and put options
     Args:
-        x: list of call price
-        y: list of put price
+        call_list: list of call option prices/metrics
+        put_list: list of put option prices/metrics
         
     Returns:
-        Which derivative is trending more than the other
+        Dictionary containing various divergence metrics
     """
-
-    normalized_call = [x - mean(call_list) for x in call_list]
-    normalized_put = [x - mean(put_list) for x in put_list]
-    pass
-    # TODO: implement
+    if len(call_list) != len(put_list) or len(call_list) == 0:
+        return {'error': 'Invalid input lists'}
+    
+    # Basic statistics
+    call_mean = mean(call_list)
+    put_mean = mean(put_list)
+    
+    # Normalize by subtracting means
+    normalized_call = [x - call_mean for x in call_list]
+    normalized_put = [x - put_mean for x in put_list]
+    
+    # Calculate various divergence metrics
+    
+    # 1. Simple difference in means
+    mean_divergence = call_mean - put_mean
+    
+    # 2. Correlation between normalized series
+    correlation = pearson_correlation(normalized_call, normalized_put)
+    
+    # 3. Relative strength - which is moving more from baseline
+    call_volatility = (sum(x**2 for x in normalized_call) / len(normalized_call))**0.5
+    put_volatility = (sum(x**2 for x in normalized_put) / len(normalized_put))**0.5
+    relative_strength = call_volatility / put_volatility if put_volatility != 0 else float('inf')
+    
+    # 4. Directional divergence - are they moving in opposite directions?
+    call_trend = (call_list[-1] - call_list[0]) / len(call_list) if len(call_list) > 1 else 0
+    put_trend = (put_list[-1] - put_list[0]) / len(put_list) if len(put_list) > 1 else 0
+    directional_divergence = call_trend - put_trend
+    
+    # 5. Momentum divergence - recent vs historical
+    if len(call_list) >= 4:
+        recent_call = mean(call_list[-len(call_list)//2:])
+        recent_put = mean(put_list[-len(put_list)//2:])
+        historical_call = mean(call_list[:len(call_list)//2])
+        historical_put = mean(put_list[:len(put_list)//2])
+        
+        momentum_divergence = (recent_call - historical_call) - (recent_put - historical_put)
+    else:
+        momentum_divergence = 0
+    
+    # 6. Volatility divergence
+    volatility_divergence = call_volatility - put_volatility
+    
+    return {
+        'mean_divergence': mean_divergence,
+        'correlation': correlation,
+        'relative_strength': relative_strength,
+        'directional_divergence': directional_divergence,
+        'momentum_divergence': momentum_divergence,
+        'volatility_divergence': volatility_divergence,
+        'call_volatility': call_volatility,
+        'put_volatility': put_volatility
+    }
 
 def black_scholes_greeks(S, K, T, r, sigma, option_type='call'):
     """Calculate Black-Scholes greeks"""
@@ -110,3 +159,63 @@ def get_time_to_expiry(expiry_date):
     else:
         expiry = expiry_date
     return max((expiry - date.today()).days / 365.0, 1/365)
+
+def calculate_put_call_parity_divergence(call_price, put_price, stock_price, strike, time_to_expiry, risk_free_rate=0.05):
+    """
+    Calculate divergence from put-call parity
+    Put-Call Parity: C - P = S - K*e^(-r*T)
+    
+    Args:
+        call_price: Current call option price
+        put_price: Current put option price  
+        stock_price: Current stock price
+        strike: Strike price
+        time_to_expiry: Time to expiry in years
+        risk_free_rate: Risk-free interest rate
+        
+    Returns:
+        Divergence from theoretical parity value
+    """
+    import math
+    
+    theoretical_difference = stock_price - strike * math.exp(-risk_free_rate * time_to_expiry)
+    actual_difference = call_price - put_price
+    
+    return actual_difference - theoretical_difference
+
+def rolling_divergence_signal(prices, window=20, threshold=2.0):
+    """
+    Generate divergence signals based on rolling statistics
+    
+    Args:
+        prices: List of price differences or divergence values
+        window: Rolling window size
+        threshold: Z-score threshold for signal generation
+        
+    Returns:
+        List of signals (-1, 0, 1) for sell, neutral, buy
+    """
+    if len(prices) < window:
+        return [0] * len(prices)
+    
+    signals = [0] * (window - 1)  # No signals for first window-1 points
+    
+    for i in range(window - 1, len(prices)):
+        window_data = prices[i - window + 1:i + 1]
+        window_mean = mean(window_data)
+        window_std = (sum((x - window_mean)**2 for x in window_data) / len(window_data))**0.5
+        
+        if window_std == 0:
+            signals.append(0)
+            continue
+            
+        z_score = (prices[i] - window_mean) / window_std
+        
+        if z_score > threshold:
+            signals.append(1)  # Buy signal
+        elif z_score < -threshold:
+            signals.append(-1)  # Sell signal
+        else:
+            signals.append(0)  # Neutral
+    
+    return signals
