@@ -67,48 +67,6 @@ This repository implements a rigorous mathematical framework for real-time detec
 pip install numpy pandas scipy matplotlib seaborn plotly streamlit
 ```
 
-### Data Directory Structure
-```
-data/
-├── option_data_*.csv           # Raw option price data
-├── divergence_data_*.csv       # Processed divergence metrics
-├── divergence_alerts_*.json    # Real-time alert logs
-└── atm_divergence_analysis.csv # Historical analysis results
-```
-
-## Usage Examples
-
-### Basic Divergence Analysis
-```python
-from socket.util.calculations import calculate_divergence
-
-#----------------------------Calculate divergence metrics
-call_prices = [2.45, 2.52, 2.48, 2.51]
-put_prices = [2.38, 2.41, 2.39, 2.42]
-
-result = calculate_divergence(call_prices, put_prices)
-print(f"Mean divergence: {result['mean_divergence']:.4f}")
-print(f"Statistical significance: {result['statistical_significance']}")
-```
-
-### Real-Time Monitoring
-```python
-from socket.util.realtime_divergence import DivergenceMonitor
-
-#----------------------------Initialize monitor
-monitor = DivergenceMonitor(lookback_window=50, signal_threshold=2.0)
-
-#----------------------------Process market data
-result = monitor.add_option_data(timestamp, spy_price, call_data, put_data)
-print(f"Signal: {result['signal']}, Confidence: {result['signal_confidence']:.3f}")
-```
-
-### Historical Analysis
-```python
-#----------------------------Run complete historical analysis
-python workbook/analyze_divergence.py
-```
-
 ### Launch Dashboard
 ```bash
 streamlit run dashboard.py
@@ -127,35 +85,6 @@ streamlit run dashboard.py
 - **False Discovery Rate**: 3.7% (well below 5% target)
 - **Localization Error**: 3.7 observations (vs. theoretical 4.2 log n)
 - **Coverage Probability**: 94.7% (close to nominal 95%)
-
-## Mathematical Rigor
-
-### Theoretical Guarantees
-- **Asymptotic Distribution Theory**: Complete characterization under null/alternative hypotheses
-- **Concentration Inequalities**: Finite-sample bounds via Hoeffding's inequality
-- **Model Selection Consistency**: BIC-based optimal factor selection
-- **Breakdown Point Analysis**: Robustness under contamination
-
-### Statistical Validation
-- **Hypothesis Testing**: ADF, Ljung-Box, Jarque-Bera tests
-- **Cross-Validation**: Walk-forward analysis with bootstrap confidence intervals
-- **Multiple Testing Control**: Benjamini-Hochberg FDR correction
-- **Regime Detection**: Structural break identification with confidence bounds
-
-## Research Applications
-
-### Academic Use
-- **Reproducible Research**: Complete mathematical exposition in `article.md`
-- **Open Source**: Modular architecture for extension and modification
-- **Publication Ready**: LaTeX-compatible formulations and results
-- **Theoretical Foundation**: Rigorous proofs and asymptotic analysis
-
-### Industry Applications
-- **Algorithmic Trading**: Real-time signal generation with statistical guarantees
-- **Risk Management**: VaR and extreme event monitoring
-- **Market Making**: Arbitrage opportunity identification
-- **Regulatory Compliance**: Model validation and documentation
-
 
 ---
 
