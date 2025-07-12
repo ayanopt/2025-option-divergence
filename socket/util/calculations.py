@@ -17,16 +17,16 @@ def pearson_correlation(x: list[float], y: list[float]) -> float:
     """
     n = len(x)
     
-    # Calculate means
+    #-------------Calculate means
     mean_x = mean(x)
     mean_y = mean(y)
     
-    # Calculate covariance and standard deviations
+    #-------------Calculate covariance and standard deviations
     covariance = sum((x[i] - mean_x) * (y[i] - mean_y) for i in range(n))
     std_x = (sum((val - mean_x) ** 2 for val in x)) ** 0.5
     std_y = (sum((val - mean_y) ** 2 for val in y)) ** 0.5
     
-    # Calculate correlation coefficient
+    #-------------Calculate correlation coefficient
     correlation = covariance / (std_x * std_y)
     
     return correlation
@@ -45,7 +45,7 @@ def calculate_divergence(call_list: list[float], put_list: list[float]) -> float
     normalized_call = [x - mean(call_list) for x in call_list]
     normalized_put = [x - mean(put_list) for x in put_list]
     pass
-    # TODO: implement
+    #-------------TODO: implement
 
 def black_scholes_greeks(S, K, T, r, sigma, option_type='call'):
     """Calculate Black-Scholes greeks"""
@@ -99,7 +99,7 @@ def implied_volatility(S, K, T, r, market_price, option_type='call'):
         if abs(sigma_new - sigma) < 1e-6:
             return sigma_new
         sigma = max(sigma_new, 0.01)
-    # TODO: improve sub zero sigma handling
+    #-------------TODO: improve sub zero sigma handling
     return sigma if sigma > 0 else None
 
 def get_time_to_expiry(expiry_date):

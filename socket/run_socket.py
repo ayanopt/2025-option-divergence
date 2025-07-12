@@ -17,7 +17,7 @@ csv_writer.writerow(['timestamp', 'symbol', 'option_type', 'strike', 'latest_tra
 def get_option_chain_offline(spy_price):
     lower_bound = math.floor(spy_price * 0.99)
     upper_bound = math.ceil(spy_price * 1.01)
-    # SPY250707P00624000
+    #-------------SPY250707P00624000
     return [f"SPY{today.strftime('%y%m%d')}C{strike:05d}000" for strike in range(lower_bound, upper_bound + 1)], [f"SPY{today.strftime('%y%m%d')}P{strike:05d}000" for strike in range(lower_bound, upper_bound + 1)]
 
 def get_option_chain(spy_price):
@@ -42,9 +42,9 @@ def flush_out_greeks(symbol, snapshot, entry_timestamp):
     is_call = 'C' in symbol
     strike = float(symbol.split('C' if is_call else 'P')[-1])
 
-    # check if otm
+    #-------------check if otm
     #if (is_call and strike > current_spy_price) or (not is_call and strike < current_spy_price):
-    #    return
+    #-------------   return
     option_type = 'call' if is_call else 'put'
     strike = float(symbol.split('C' if is_call else 'P')[-1]) / 1000
     
@@ -52,7 +52,7 @@ def flush_out_greeks(symbol, snapshot, entry_timestamp):
     bid = snapshot.latest_quote.bid_price if snapshot.latest_quote else None
     ask = snapshot.latest_quote.ask_price if snapshot.latest_quote else None
     
-    # Calculate IV and greeks using Black-Scholes
+    #-------------Calculate IV and greeks using Black-Scholes
     expiry_str = symbol[3:9]  # Extract YYMMDD from symbol
     T = get_time_to_expiry(f"20{expiry_str}")
     r = 0.05  # Risk-free rate
@@ -94,7 +94,7 @@ async def load_price(data):
             
             timestamp = datetime.datetime.now().isoformat()
             
-            # Handle csv 
+            #--------Handle csv 
             for symbol, snapshot in snapshots.items():
                 flush_out_greeks(symbol, snapshot, timestamp)
 
