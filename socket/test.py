@@ -8,7 +8,7 @@ today = datetime.date.today()
 def get_option_chain_offline(spy_price):
     lower_bound = math.floor(spy_price * 0.99)
     upper_bound = math.ceil(spy_price * 1.01)
-    # SPY250707P00624000
+    #------------------------SPY250707P00624000
     return [f"SPY{today.strftime('%y%m%d')}C{strike:05d}000" for strike in range(lower_bound, upper_bound + 1)], [f"SPY{today.strftime('%y%m%d')}P{strike:05d}000" for strike in range(lower_bound, upper_bound + 1)]
 
 

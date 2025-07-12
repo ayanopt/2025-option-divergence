@@ -15,7 +15,7 @@ import glob
 from datetime import datetime, timedelta
 import time
 
-# Page configuration
+#----------------------------Page configuration
 st.set_page_config(
     page_title="SPY Option Divergence Monitor",
     layout="wide",
@@ -26,7 +26,7 @@ st.set_page_config(
 def load_latest_data():
     """Load the most recent option and divergence data"""
     
-    # Load option data
+    #------------ Load option data
     option_files = glob.glob('data/option_data_*.csv')
     if option_files:
         latest_option_file = max(option_files, key=lambda x: datetime.fromtimestamp(os.path.getmtime(x)))
@@ -35,7 +35,7 @@ def load_latest_data():
     else:
         option_df = pd.DataFrame()
     
-    # Load divergence alerts
+    #------------ Load divergence alerts
     alert_files = glob.glob('data/divergence_alerts_*.json')
     alerts = []
     
@@ -52,12 +52,13 @@ def load_latest_data():
     if not alerts_df.empty:
         alerts_df['timestamp'] = pd.to_datetime(alerts_df['timestamp'])
     
-    # Load divergence analysis data if available
-    divergence_files = glob.glob('data/*divergence_data_*.csv')
+    #------------ Load divergence analysis data
+    divergence_files = glob.glob('data/divergence_data_*.csv') + glob.glob('data/atm_divergence_analysis.csv')
     if divergence_files:
         latest_div_file = max(divergence_files, key=lambda x: datetime.fromtimestamp(os.path.getmtime(x)))
         divergence_df = pd.read_csv(latest_div_file)
-        divergence_df['timestamp'] = pd.to_datetime(divergence_df['timestamp'])
+        if 'timestamp' in divergence_df.columns:
+            divergence_df['timestamp'] = pd.to_datetime(divergence_df['timestamp'])
     else:
         divergence_df = pd.DataFrame()
     
@@ -99,28 +100,28 @@ def create_divergence_chart(divergence_df, alerts_df):
         vertical_spacing=0.08
     )
     
-    # Price divergence
+    #------------ Price divergence
     fig.add_trace(
         go.Scatter(x=divergence_df['timestamp'], y=divergence_df['price_divergence'],
                   mode='lines', name='Price Div', line=dict(color='red')),
         row=1, col=1
     )
     
-    # IV divergence
+    #------------ IV divergence
     fig.add_trace(
         go.Scatter(x=divergence_df['timestamp'], y=divergence_df['iv_divergence'],
                   mode='lines', name='IV Div', line=dict(color='green')),
         row=2, col=1
     )
     
-    # Parity divergence
+    #------------ Parity divergence
     fig.add_trace(
         go.Scatter(x=divergence_df['timestamp'], y=divergence_df['parity_divergence'],
                   mode='lines', name='Parity Div', line=dict(color='purple')),
         row=3, col=1
     )
     
-    # Add alert markers if available
+    #------------ Add alert markers if available
     if not alerts_df.empty:
         for _, alert in alerts_df.iterrows():
             color = 'green' if alert['signal'] == 1 else 'red'
@@ -131,7 +132,7 @@ def create_divergence_chart(divergence_df, alerts_df):
                     row=row, col=1
                 )
     
-    # Add zero lines
+    #------------ Add zero lines
     for row in [1, 2, 3]:
         fig.add_hline(y=0, line=dict(color='gray', width=1, dash='dot'), row=row, col=1)
     
@@ -160,59 +161,50 @@ def create_signal_distribution(alerts_df):
     
     return fig
 
-def create_iv_surface(option_df):
-    """Create implied volatility surface"""
-    if option_df.empty:
+def create_divergence_heatmap(divergence_df):
+    """Create divergence correlation heatmap"""
+    if divergence_df.empty:
         return go.Figure()
     
-    # Filter recent data and valid IV
-    recent_data = option_df[
-        (option_df['timestamp'] >= option_df['timestamp'].max() - timedelta(minutes=30)) &
-        (option_df['implied_volatility'].notna()) &
-        (option_df['implied_volatility'] > 0)
-    ]
+    #------------ Create correlation matrix of divergence metrics
+    metrics = ['price_divergence', 'iv_divergence', 'parity_divergence']
+    corr_matrix = divergence_df[metrics].corr()
     
-    if recent_data.empty:
-        return go.Figure()
+    fig = go.Figure(data=go.Heatmap(
+        z=corr_matrix.values,
+        x=corr_matrix.columns,
+        y=corr_matrix.index,
+        colorscale='RdBu',
+        zmid=0
+    ))
     
-    # Calculate moneyness
-    recent_data = recent_data.copy()
-    recent_data['moneyness'] = recent_data['strike'] / recent_data['price']
-    
-    # Create surface plot
-    fig = px.scatter_3d(
-        recent_data,
-        x='moneyness',
-        y='timestamp',
-        z='implied_volatility',
-        color='option_type',
-        title="Implied Volatility Surface",
-        color_discrete_map={'call': 'blue', 'put': 'red'}
+    fig.update_layout(
+        title="Divergence Metrics Correlation",
+        height=400
     )
     
-    fig.update_layout(height=500)
     return fig
 
-# Main dashboard
+#----------------------------Main dashboard
 def main():
     st.title("SPY Option Divergence Monitor")
     st.markdown("Real-time monitoring of SPY option divergence patterns")
     
-    # Sidebar controls
+    #------------------------Sidebar controls
     st.sidebar.header("Controls")
     auto_refresh = st.sidebar.checkbox("Auto Refresh (30s)", value=True)
     refresh_button = st.sidebar.button("Refresh Now")
     
     if auto_refresh:
-        # Auto-refresh every 30 seconds
+        #--------------------Auto-refresh every 30 seconds
         time.sleep(1)
         st.rerun()
     
-    # Load data
+    #------------------------Load data
     with st.spinner("Loading latest data..."):
         option_df, alerts_df, divergence_df = load_latest_data()
     
-    # Status indicators
+    #------------------------Status indicators
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -235,7 +227,7 @@ def main():
         else:
             st.metric("Latest SPY Price", "N/A")
     
-    # Main charts
+    #------------ Main charts
     st.header("Price Evolution")
     if not option_df.empty:
         price_chart = create_price_chart(option_df)
@@ -243,7 +235,7 @@ def main():
     else:
         st.info("No option data available")
     
-    # Divergence analysis
+    #------------ Divergence analysis
     st.header("Divergence Analysis")
     if not divergence_df.empty:
         divergence_chart = create_divergence_chart(divergence_df, alerts_df)
@@ -251,7 +243,7 @@ def main():
     else:
         st.info("No divergence data available. Run the analysis script to generate divergence metrics.")
     
-    # Two column layout for additional charts
+    #------------------------Two column layout for additional charts
     col1, col2 = st.columns(2)
     
     with col1:
@@ -263,14 +255,14 @@ def main():
             st.info("No alerts generated yet")
     
     with col2:
-        st.subheader("IV Surface")
-        if not option_df.empty:
-            iv_chart = create_iv_surface(option_df)
-            st.plotly_chart(iv_chart, use_container_width=True)
+        st.subheader("Divergence Correlation")
+        if not divergence_df.empty:
+            heatmap_chart = create_divergence_heatmap(divergence_df)
+            st.plotly_chart(heatmap_chart, use_container_width=True)
         else:
-            st.info("No option data for IV surface")
+            st.info("No divergence data for correlation analysis")
     
-    # Recent alerts table
+    #------------------------Recent alerts table
     st.header("Recent Alerts")
     if not alerts_df.empty:
         recent_alerts = alerts_df.tail(10).sort_values('timestamp', ascending=False)
@@ -281,23 +273,25 @@ def main():
     else:
         st.info("No alerts to display")
     
-    # Data summary
-    with st.expander("Data Summary"):
-        if not option_df.empty:
-            st.write("**Option Data Summary:**")
-            st.write(f"- Total records: {len(option_df)}")
-            st.write(f"- Date range: {option_df['timestamp'].min()} to {option_df['timestamp'].max()}")
-            st.write(f"- Unique strikes: {option_df['strike'].nunique()}")
-            st.write(f"- Call options: {len(option_df[option_df['option_type'] == 'call'])}")
-            st.write(f"- Put options: {len(option_df[option_df['option_type'] == 'put'])}")
+    #------------ Statistical Summary
+    with st.expander("Statistical Analysis"):
+        if not divergence_df.empty:
+            st.write("**Divergence Statistics:**")
+            for metric in ['price_divergence', 'iv_divergence', 'parity_divergence']:
+                if metric in divergence_df.columns:
+                    mean_val = divergence_df[metric].mean()
+                    std_val = divergence_df[metric].std()
+                    st.write(f"- {metric}: μ={mean_val:.4f}, σ={std_val:.4f}")
         
         if not alerts_df.empty:
-            st.write("**Alert Summary:**")
+            st.write("**Signal Performance:**")
             signal_summary = alerts_df['signal_name'].value_counts()
+            total_signals = len(alerts_df)
             for signal, count in signal_summary.items():
-                st.write(f"- {signal}: {count}")
+                pct = (count/total_signals)*100
+                st.write(f"- {signal}: {count} ({pct:.1f}%)")
     
-    # Footer
+    #------------------------Footer
     st.markdown("---")
     st.markdown("*Dashboard updates automatically every 30 seconds when auto-refresh is enabled*")
 
