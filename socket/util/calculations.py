@@ -3,7 +3,7 @@ from scipy.stats import norm
 
 def mean(x):
     return sum(x)/ len(x)
-
+#-----------------------------------------------------------------------------
 def pearson_correlation(x: list[float], y: list[float]) -> float:
     """
     Calculate Pearson correlation coefficient between two variables
@@ -30,7 +30,7 @@ def pearson_correlation(x: list[float], y: list[float]) -> float:
     correlation = covariance / (std_x * std_y)
     
     return correlation
-
+#-----------------------------------------------------------------------------
 def calculate_divergence(call_list: list[float], put_list: list[float]) -> float:
     """
     Subtract mean from each field -> Measure deviation from mean between each
@@ -46,7 +46,7 @@ def calculate_divergence(call_list: list[float], put_list: list[float]) -> float
     normalized_put = [x - mean(put_list) for x in put_list]
     pass
     #-------------TODO: implement
-
+#-----------------------------------------------------------------------------
 def black_scholes_greeks(S, K, T, r, sigma, option_type='call'):
     """Calculate Black-Scholes greeks"""
     if T <= 0 or sigma <= 0:
@@ -68,7 +68,7 @@ def black_scholes_greeks(S, K, T, r, sigma, option_type='call'):
     vega = S * norm.pdf(d1) * math.sqrt(T) / 100
     
     return {'delta': delta, 'gamma': gamma, 'theta': theta, 'vega': vega, 'rho': rho}
-
+#-----------------------------------------------------------------------------
 def black_scholes_price(S, K, T, r, sigma, option_type='call'):
     """Calculate Black-Scholes option price"""
     if T <= 0 or sigma <= 0:
@@ -81,7 +81,7 @@ def black_scholes_price(S, K, T, r, sigma, option_type='call'):
         return S * norm.cdf(d1) - K * math.exp(-r * T) * norm.cdf(d2)
     else:
         return K * math.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
-
+#-----------------------------------------------------------------------------
 def implied_volatility(S, K, T, r, market_price, option_type='call'):
     """Calculate implied volatility using Newton-Raphson"""
     if T <= 0 or market_price <= 0:
@@ -101,7 +101,7 @@ def implied_volatility(S, K, T, r, market_price, option_type='call'):
         sigma = max(sigma_new, 0.01)
     #-------------TODO: improve sub zero sigma handling
     return sigma if sigma > 0 else None
-
+#-----------------------------------------------------------------------------
 def get_time_to_expiry(expiry_date):
     """Calculate time to expiry in years"""
     from datetime import datetime, date

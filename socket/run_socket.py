@@ -10,16 +10,16 @@ current_spy_price = None
 last_csv_update = None
 option_client = OptionHistoricalDataClient(KEY, SECRET)
 today = datetime.date.today()
-csv_file = open(f'../data/option_data_{today.month}_{today.day}.csv', 'w', newline='')
+csv_file = open(f'../data/raw/option_data_{today.month}_{today.day}.csv', 'w', newline='')
 csv_writer = csv.writer(csv_file)
 csv_writer.writerow(['timestamp', 'symbol', 'option_type', 'strike', 'latest_trade_price', 'latest_quote_bid', 'latest_quote_ask', 'implied_volatility', 'delta', 'gamma', 'theta', 'vega', 'rho', 'price'])
-
+#-----------------------------------------------------------------------------
 def get_option_chain_offline(spy_price):
     lower_bound = math.floor(spy_price * 0.99)
     upper_bound = math.ceil(spy_price * 1.01)
     #-------------SPY250707P00624000
     return [f"SPY{today.strftime('%y%m%d')}C{strike:05d}000" for strike in range(lower_bound, upper_bound + 1)], [f"SPY{today.strftime('%y%m%d')}P{strike:05d}000" for strike in range(lower_bound, upper_bound + 1)]
-
+#-----------------------------------------------------------------------------
 def get_option_chain(spy_price):
     lower_bound = spy_price * 0.99
     upper_bound = spy_price * 1.01
@@ -37,7 +37,7 @@ def get_option_chain(spy_price):
     
     min_count = min(len(calls), len(puts))
     return calls[:min_count], puts[:min_count]
-
+#-----------------------------------------------------------------------------
 def flush_out_greeks(symbol, snapshot, entry_timestamp):
     is_call = 'C' in symbol
     strike = float(symbol.split('C' if is_call else 'P')[-1])
@@ -72,7 +72,7 @@ def flush_out_greeks(symbol, snapshot, entry_timestamp):
         iv = delta = gamma = theta = vega = rho = None
     
     csv_writer.writerow([entry_timestamp, symbol, option_type, strike, trade_price, bid, ask, iv, delta, gamma, theta, vega, rho, current_spy_price])
-
+#-----------------------------------------------------------------------------
 async def load_price(data):
     global current_spy_price, last_csv_update
     current_spy_price = data.price
