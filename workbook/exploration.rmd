@@ -1,9 +1,0 @@
----
-title: "SPY Option Divergence Analysis"
-date: "`r Sys.Date()`"
-output: pdf
----
-
-```{r setup, include=FALSE}
-options_data = read.csv("../data/option_data_7_8_1.csv")
-```
