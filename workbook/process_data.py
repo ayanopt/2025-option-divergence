@@ -1,5 +1,43 @@
 import pandas as pd
 #-----------------------------------------------------------------------------
+def distance_from_underlying_price(strike, underlying_price):
+    """Calculate distance from underlying price (percent) between -0.01 - 0.01"""
+    return ((strike - underlying_price)/underlying_price)
+#-----------------------------------------------------------------------------
+def apply_standardization(df):
+    """
+    Apply logarithmic normalization by timestamp, separately for calls and puts
+    """
+    df['moneyness'] = df.apply(lambda row: distance_from_underlying_price(row['strike'], row['price']), axis=1)
+    df['standardized_price'] = pd.NA
+
+    #------------Group by timestamp and apply logarithmic normalization separately for calls and puts
+    standardized_dfs = []
+    for timestamp, group in df.groupby('timestamp'):
+        calls = group[group['option_type'] == 'call']
+        puts = group[group['option_type'] == 'put']
+        
+        if len(calls) > 0:
+            min_call = calls['latest_trade_price'].min()
+            max_call = calls['latest_trade_price'].max()
+            if max_call > min_call:
+                calls['standardized_price'] = (np.log(calls['latest_trade_price'] + 1) - np.log(min_call + 1)) / \
+                                             (np.log(max_call + 1) - np.log(min_call + 1))
+        
+        if len(puts) > 0:
+            min_put = puts['latest_trade_price'].min()
+            max_put = puts['latest_trade_price'].max()
+            if max_put > min_put:
+                puts['standardized_price'] = (np.log(puts['latest_trade_price'] + 1) - np.log(min_put + 1)) / \
+                                            (np.log(max_put + 1) - np.log(min_put + 1))
+        
+        standardized_dfs.append(pd.concat([calls, puts]))
+    
+    if standardized_dfs:
+        return pd.concat(standardized_dfs)
+    return df
+
+#-----------------------------------------------------------------------------
 def price_diff_x_periods(csv_file_path, periods=[3,6,12,15,30]):
     """
     Calculate average price for future periods for each option.
@@ -13,7 +51,7 @@ def price_diff_x_periods(csv_file_path, periods=[3,6,12,15,30]):
     """
     df = pd.read_csv(csv_file_path)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    
+    df = apply_standardization(df)
     for period in periods:
         df[f'price_diff_{period}_periods'] = None
     
@@ -36,7 +74,7 @@ def price_diff_x_periods(csv_file_path, periods=[3,6,12,15,30]):
     return df
 #-----------------------------------------------------------------------------
 if __name__ == "__main__":
-    spec_file = '7_15'
+    spec_file = '7_9'
     filename = f'../data/raw/option_data_{spec_file}.csv'
     result_df = price_diff_x_periods(filename)
     

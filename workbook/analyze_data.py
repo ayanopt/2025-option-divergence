@@ -9,7 +9,7 @@ from sklearn.covariance import EmpiricalCovariance
 #-----------------------------------------------------------------------------
 def load_and_group_data():
     """Load option data and group by timestamp"""
-    data_dir = Path("../data/raw")
+    data_dir = Path("../data/processed")
     
     #------------Load all processed data files
     all_data = []
@@ -24,44 +24,6 @@ def load_and_group_data():
     grouped = combined_df.groupby('timestamp')
     
     return grouped, combined_df
-#-----------------------------------------------------------------------------
-def distance_from_underlying_price(strike, underlying_price):
-    """Calculate distance from underlying price (percent) between -0.01 - 0.01"""
-    return ((strike - underlying_price)/underlying_price)
-#-----------------------------------------------------------------------------
-def apply_standardization(df):
-    """
-    Apply logarithmic normalization by timestamp, separately for calls and puts
-    """
-    df['moneyness'] = df.apply(lambda row: distance_from_underlying_price(row['strike'], row['price']), axis=1)
-    df['standardized_price'] = pd.NA
-
-    #------------Group by timestamp and apply logarithmic normalization separately for calls and puts
-    normalized_dfs = []
-    for timestamp, group in df.groupby('timestamp'):
-        calls = group[group['option_type'] == 'call']
-        puts = group[group['option_type'] == 'put']
-        
-        if len(calls) > 0:
-            min_call = calls['latest_trade_price'].min()
-            max_call = calls['latest_trade_price'].max()
-            if max_call > min_call:
-                calls['standardized_price'] = (np.log(calls['latest_trade_price'] + 1) - np.log(min_call + 1)) / \
-                                             (np.log(max_call + 1) - np.log(min_call + 1))
-        
-        if len(puts) > 0:
-            min_put = puts['latest_trade_price'].min()
-            max_put = puts['latest_trade_price'].max()
-            if max_put > min_put:
-                puts['standardized_price'] = (np.log(puts['latest_trade_price'] + 1) - np.log(min_put + 1)) / \
-                                            (np.log(max_put + 1) - np.log(min_put + 1))
-        
-        normalized_dfs.append(pd.concat([calls, puts]))
-    
-    if normalized_dfs:
-        return pd.concat(normalized_dfs)
-    return df
-
 #-----------------------------------------------------------------------------
 def plot_calls_and_puts_by_timestamp(timestamp_index=0):
     """Plot all calls on one graph and all puts on another for a specific timestamp"""
@@ -83,20 +45,19 @@ def plot_calls_and_puts_by_timestamp(timestamp_index=0):
     
     #------------Create subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 12))
-    normalized_data = apply_standardization(timestamp_data)
     
     #------------Re-separate calls and puts after standardization
-    normalized_calls = normalized_data[normalized_data['option_type'] == 'call']
-    normalized_puts = normalized_data[normalized_data['option_type'] == 'put']
+    standardized_calls = timestamp_data[timestamp_data['option_type'] == 'call']
+    standardized_puts = timestamp_data[timestamp_data['option_type'] == 'put']
     
     #------------Plot all calls
-    if len(normalized_calls) > 0:
-        calls_sorted = normalized_calls.sort_values('strike')
+    if len(standardized_calls) > 0:
+        calls_sorted = standardized_calls.sort_values('strike')
         ax1.plot(calls_sorted['strike'], calls_sorted['standardized_price'], 
                 'bo-', linewidth=2, markersize=6, alpha=0.7)
-        ax1.set_title(f'All Call Options - Normalized Price\nTimestamp: {selected_timestamp}')
+        ax1.set_title(f'All Call Options - standardized Price\nTimestamp: {selected_timestamp}')
         ax1.set_xlabel('Strike Price ($)')
-        ax1.set_ylabel('Normalized Price (0-1)')
+        ax1.set_ylabel('standardized Price (0-1)')
         ax1.grid(True, alpha=0.3)
         
         #--------Add vertical line at underlying price
@@ -111,13 +72,13 @@ def plot_calls_and_puts_by_timestamp(timestamp_index=0):
                         textcoords="offset points", xytext=(0,10), ha='center', fontsize=8)
     
     #------------Plot all puts
-    if len(normalized_puts) > 0:
-        puts_sorted = normalized_puts.sort_values('strike')
+    if len(standardized_puts) > 0:
+        puts_sorted = standardized_puts.sort_values('strike')
         ax2.plot(puts_sorted['strike'], puts_sorted['standardized_price'], 
                 'ro-', linewidth=2, markersize=6, alpha=0.7)
-        ax2.set_title(f'All Put Options - Normalized Price\nTimestamp: {selected_timestamp}')
+        ax2.set_title(f'All Put Options - standardized Price\nTimestamp: {selected_timestamp}')
         ax2.set_xlabel('Strike Price ($)')
-        ax2.set_ylabel('Normalized Price (0-1)')
+        ax2.set_ylabel('standardized Price (0-1)')
         ax2.grid(True, alpha=0.3)
         
         #--------Add vertical line at underlying price
@@ -138,21 +99,21 @@ def plot_calls_and_puts_by_timestamp(timestamp_index=0):
     
     print("\nSummary Statistics:")
     print("#" + "="*60)
-    if len(normalized_calls) > 0:
-        print(f"\nCALLS ({len(normalized_calls)} options):")
-        print(f"    Strike range: ${normalized_calls['strike'].min():.0f} - ${normalized_calls['strike'].max():.0f}")
-        print(f"    Price range: ${normalized_calls['latest_trade_price'].min():.2f} - ${normalized_calls['latest_trade_price'].max():.2f}")
-        print(f"    Average price: ${normalized_calls['latest_trade_price'].mean():.2f}")
-        print(f"    Normalized price range: {normalized_calls['standardized_price'].min():.2f} - {normalized_calls['standardized_price'].max():.2f}")
-        print(f"    Average normalized price: {normalized_calls['standardized_price'].mean():.2f}")
+    if len(standardized_calls) > 0:
+        print(f"\nCALLS ({len(standardized_calls)} options):")
+        print(f"    Strike range: ${standardized_calls['strike'].min():.0f} - ${standardized_calls['strike'].max():.0f}")
+        print(f"    Price range: ${standardized_calls['latest_trade_price'].min():.2f} - ${standardized_calls['latest_trade_price'].max():.2f}")
+        print(f"    Average price: ${standardized_calls['latest_trade_price'].mean():.2f}")
+        print(f"    standardized price range: {standardized_calls['standardized_price'].min():.2f} - {standardized_calls['standardized_price'].max():.2f}")
+        print(f"    Average standardized price: {standardized_calls['standardized_price'].mean():.2f}")
     
-    if len(normalized_puts) > 0:
-        print(f"\nPUTS ({len(normalized_puts)} options):")
-        print(f"    Strike range: ${normalized_puts['strike'].min():.0f} - ${normalized_puts['strike'].max():.0f}")
-        print(f"    Price range: ${normalized_puts['latest_trade_price'].min():.2f} - ${normalized_puts['latest_trade_price'].max():.2f}")
-        print(f"    Average price: ${normalized_puts['latest_trade_price'].mean():.2f}")
-        print(f"    Normalized price range: {normalized_puts['standardized_price'].min():.2f} - {normalized_puts['standardized_price'].max():.2f}")
-        print(f"    Average normalized price: {normalized_puts['standardized_price'].mean():.2f}")
+    if len(standardized_puts) > 0:
+        print(f"\nPUTS ({len(standardized_puts)} options):")
+        print(f"    Strike range: ${standardized_puts['strike'].min():.0f} - ${standardized_puts['strike'].max():.0f}")
+        print(f"    Price range: ${standardized_puts['latest_trade_price'].min():.2f} - ${standardized_puts['latest_trade_price'].max():.2f}")
+        print(f"    Average price: ${standardized_puts['latest_trade_price'].mean():.2f}")
+        print(f"    standardized price range: {standardized_puts['standardized_price'].min():.2f} - {standardized_puts['standardized_price'].max():.2f}")
+        print(f"    Average standardized price: {standardized_puts['standardized_price'].mean():.2f}")
 
 #-----------------------------------------------------------------------------
 def analyze_grouped_data():
