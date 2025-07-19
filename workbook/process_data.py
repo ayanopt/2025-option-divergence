@@ -36,7 +36,7 @@ def price_diff_x_periods(csv_file_path, periods=[3,6,12,15,30]):
     return df
 #-----------------------------------------------------------------------------
 if __name__ == "__main__":
-    spec_file = '7_9'
+    spec_file = '7_15'
     filename = f'../data/raw/option_data_{spec_file}.csv'
     result_df = price_diff_x_periods(filename)
     
