@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 #-----------------------------------------------------------------------------
 def distance_from_underlying_price(strike, underlying_price):
     """Calculate distance from underlying price (percent) between -0.01 - 0.01"""
