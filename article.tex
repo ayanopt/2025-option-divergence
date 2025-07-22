@@ -5,7 +5,7 @@
 \graphicspath{ {./data/results} }
 
 \title{Option Pricing Strategy}
-\author{Summary}
+\author{Ayan Goswami}
 \date{}
 \begin{document}
 \maketitle
@@ -87,22 +87,27 @@ Figure~\ref{fig:price-diff} shows the average price change by residual group. Th
 \end{figure}
 \begin{table}[h]
   \centering
-  \begin{tabular}{lcccccc}
-    \toprule
-    Period (10 seconds) & Under-valued mean return & Over-valued mean return & Overall & $p_{\text{GEQ}}$ & $p_{\text{LEQ}}$ \\
-    \midrule
-    3  & 1.0111 & 0.9932 & 1.0019 & 0.0742 & 0*     \\
-    6  & 1.0125 & 0.9915 & 0.9991 & 0.0265* & 6e-04* \\
-    12 & 1.0114 & 0.9889 & 0.9989 & 0.0504 & 3e-04* \\
-    15 & 1.0086 & 0.9897 & 0.9975 & 0.0818 & 0.0052* \\
-    30 & 1.0028 & 0.9889 & 0.9961 & 0.2437 & 0.0405* \\
-    \bottomrule
-  \end{tabular}
-  \caption{Mean future price ratios by residual group with associated $p$-values. * significant at $p=0.05$}
+  \resizebox{\textwidth}{!}{%
+    \begin{tabular}{lcccccc}
+      \toprule
+      Period (10s) & Mean (Under) & Mean (Over) & Mean (Overall) & $P(\mu_{\text{GEQ}} = \mu_{\text{All}})$ & $P(\mu_{\text{All}} = \mu_{\text{LEQ}})$ \\
+      \midrule
+      3   & 1.0111 & 0.9932 & 1.0019 & 0.0742   & 0*       \\
+      6   & 1.0125 & 0.9915 & 0.9991 & 0.0265*  & 0.0006*  \\
+      12  & 1.0114 & 0.9889 & 0.9989 & 0.0504   & 0.0003*  \\
+      15  & 1.0086 & 0.9897 & 0.9975 & 0.0818   & 0.0052*  \\
+      30  & 1.0028 & 0.9889 & 0.9961 & 0.2437   & 0.0405*  \\
+      \bottomrule
+    \end{tabular}%
+  }
+  \caption{Mean future price ratios by residual group and associated $p$-values. * indicates significance at $p = 0.05$.}
   \label{tab:mean-return}
 \end{table}
 \section{Discussion}
 The KNN output served as a prior that highlighted relative mispricing. The residual-based signals produced consistent return differences in favor of positive residuals. While the profits observed in backtesting were modest, the approach performed better than random trading according to the null threshold. Further study could refine feature selection and risk controls.
+
+Moreover, machine learning models such as random forests and boosted trees perform better than a naive Bayes solution such as this one according to Caruana (2006).
+ 
 \section{Conclusion}
 The KNN model approximates $E(X\mid Y,Z,\ldots)$ and acts as a prior in a Bayesian decision rule. Trades are triggered when observed residuals cross the significance threshold. The strategy generated profits above a random baseline, suggesting predictive value in the modeled relationships.
 
@@ -218,4 +223,8 @@ C + Ke^{-rT} = P + S
 \end{equation}
 
 This relationship can be used to derive the price of a put option from a call option with the same strike and expiration, or vice versa.
+
+\section{References}
+1. Caruana, R.; Niculescu-Mizil, A. (2006). An empirical comparison of supervised learning algorithms. Proc. 23rd International Conference on Machine Learning.
+
 \end{document}
