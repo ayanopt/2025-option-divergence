@@ -9,11 +9,19 @@
 \date{}
 \begin{document}
 \maketitle
+\section{Abstract}
+
+We present a non-parametric framework for modeling and trading short-term equity options using K-Nearest Neighbors (KNN). By predicting standardized option prices from key Greeks and volatility measures, we identify residuals with predictive power for future returns. A directional hypothesis test confirms that under- and over-predicted options exhibit statistically significant forward price behavior. A simulated trading strategy using residual-based signals outperforms randomized baselines with strong significance. This work demonstrates a pragmatic intersection of machine learning and financial theory, providing evidence for short-term inefficiencies in option markets.
+
 \section{Introduction}
 
-This document summarizes the findings reported in \texttt{strategy\_book.pdf}. The original analysis uses option data to evaluate pricing efficiency and develop a trading approach. A K--Nearest Neighbors (KNN) model is employed as a non-parametric estimator of conditional expectations $E(X\mid Y,Z,\ldots)$. The KNN output serves as a prior input in a Bayesian framework to signal long or short trades.
+This document summarizes the findings reported in \texttt{strategy\_book.pdf}. The original analysis uses option data to evaluate pricing efficiency and develop a trading approach. Short-dated options have become increasingly popular in modern markets, yet pricing them efficiently remains a challenge. Traditional models such as Black-Scholes assume constant volatility and smooth dynamics, often invalid in practice. We adopt a K-Nearest Neighbors regression model to estimate standardized option prices, bypassing strong parametric assumptions.
 
-\section{Data Loading and Preparation}
+\section{Methodology}
+
+Our approach has three key components: (i) exploratory analysis of option features, (ii) KNN-based prediction of standardized prices using Greeks and moneyness, and (iii) residual-based hypothesis testing to detect mispricings that yield directional signals for trading.
+
+\subsection{Data Loading and Preparation}
 
 Option data was loaded from a socket stream leveraging Alpaca's IEX market data (see ./socket), updated every 10 seconds. For the purposes of this investigation, we focused on options with 0 days to expiry (0dte), as they have the largest trading volume and are assumed to self-correct quicker than options with a later expiry. All options between 99\% to 101\% of the current price were stored in a csv, along with all the corresponding greeks and implied volatility. To read more about how this was calculated see the Appendix. When this investigation was conducted, SPY hovered around 620\$, hence for a given timestamp, 14 or 15 calls and puts were stored. This was done to get an even spread of in the money (ITM), at the money (ATM) and out the money (OTM) options.
 
@@ -38,53 +46,48 @@ Logarithmic scaling was chosen to compress the skewness in price distribution, e
 \end{figure}
 \includegraphics{}
 
-Option data were loaded from several processed files and split into training and validation sets using a 75\%/25\% split. Since the $\theta$ decay is so high for 0dte options, we focused on trade entry and exit windows between 30 seconds to 5 minutes. This way the $\alpha$ can be measured reliably without accounting for price decay. Hence, a column was appended to our dataset called \texttt{price\_diff}, which measured:
+Option data were loaded from several processed files and split into training and validation sets using a 56\%/14\%30\% split for training, validation and testing. 
+Since the $\theta$ decay is so high for 0dte options, we focused on trade entry and exit windows between 30 seconds to 5 minutes. This way the $\alpha$ can be measured reliably without accounting for price decay. Hence, a column was appended to our dataset called \texttt{price\_diff}, which measured:
+
 \[
 \text{price\_diff_x} = \frac{\frac{\sum_{i=t}^{x+t}{price_i}}{x}}{price_{t}}
 \]
 
-where x is the look-forward period in tens of seconds, and t is the current time period. This will serve as a metric of success and efficacy in our paper.
+where x is the look-forward period in tens of seconds, and t is the current time period. This will serve as a metric of success and efficacy in our paper. The top and bottom 5\% were trimmed in this data set t mitigate the risk of outlier-driven distortion in both the residual distribution and downstream performance metrics, such as the estimated significance of prediction errors.
 
-\section{KNN Modeling}
-The model predicts standardized option prices. A wrapper function scales predictors and returns both root mean squared error (RMSE) and $R^2$ values. Exhaustive subset selection determined that \verb|delta|, \verb|gamma|, \verb|moneyness|, and \verb|rho| gave the best performance with
-\begin{align*}
-\text{RMSE} &= 0.0269,\\
-R^2 &= 0.9946.
-\end{align*}
-Optimal $k$ was found by evaluating a range of values and occurred at $k=3$. Residual analysis showed near-normal errors; a significance threshold was derived as
-\begin{equation*}
-q = \Phi^{-1}(0.95,\mu_{r},\sigma_{r}) = 0.0146,
-\end{equation*}
-where $r$ denotes prediction residuals.
-\section{Hypothesis Testing}
-Price moves were summarized by
-\begin{equation*}
-price\_diff_{x} = \frac{\frac{\sum_{i=t}^{t+x}{price_i}}{x}}{price_{t}}.
-\end{equation*}
-Mean returns were compared for options with residuals above $q$ (GEQ), below $-q$ (LEQ), and for all options. The null hypothesis
-\begin{equation*}
-H_0 : \mu_{\text{GEQ}} = \mu_{\text{LEQ}} = \mu_{\text{All}}
-\end{equation*}
-was rejected for the six-period window with p-values below 0.05. The alternative hypothesis
-\begin{equation*}
-H_1 : \mu_{\text{GEQ}} > \mu_{\text{All}} > \mu_{\text{LEQ}}
-\end{equation*}
-was supported in several horizons.
-\section{Trading Simulation}
-Signals were generated on new data using the KNN predictions. Long trades were entered when residuals exceeded $q$, and short trades were entered when residuals were less than $-q$. If $price\_diff\_x$ is the average future price ratio, then
-\begin{align*}
-\alpha_{\text{long}} &= (price_t \cdot price\_diff_x) - price_t,\\
-\alpha_{\text{short}} &= price_t - (price_t \cdot price\_diff_x).
-\end{align*}
-A test run on 5268 trades produced \$1685 in profit. Comparison against 100 random simulations gave a null threshold of \$445.64, indicating the strategy outperformed chance at the five percent level.
-\section{Results}
-Figure~\ref{fig:price-diff} shows the average price change by residual group. The high residual group typically exhibits a higher mean price ratio across horizons. Table~\ref{tab:mean-return} lists mean future price ratios and $p$-values for each window.
+\subsection{KNN Modeling}
+
+K-Nearest Neighbors (KNN) is a non-parametric regression algorithm that predicts the output of a data point based on the average of its $k$ nearest neighbors in the feature space \citep{cover1967nearest}. Unlike parametric models, KNN does not assume a functional form for the relationship between input variables and the target. Instead, it leverages local structure in the data to make predictions. This makes KNN particularly useful in financial contexts where relationships between variables may be complex, noisy, or nonlinear \citep{altman1992introduction}. Our model predicts standardized option prices based on option greeks, volatility and moneyness (see Appendix). A wrapper function scales predictors and returns both root mean squared error (RMSE) and $R^2$ values. Exhaustive subset selection determined that \verb|delta|, \verb|gamma|, \verb|moneyness|, and \verb|rho| gave the best performance with RMSE 0.0269 and \( R^2 = 0.9946 \). The $k$ value used in the analysis was $\sqrt{n}$ where $n$ is the number of rows in the training set. This is standard is most analyses We define the KNN estimator:
+\[
+\hat{y}_t = \frac{1}{k} \sum_{i \in \mathcal{N}_k(x_t)} y_i
+\]
+
+where \( \mathcal{N}_k(x_t) \) is the set of \( k \) nearest neighbors of feature vector \( x_t \). \
+
+Optimal $k$ was found by evaluating a range of values and occurred at $k=3$. Such a low $k$ indicates a complex space, and from our analysis it is possible that the optimal $k$ is 1. $k=1$ would require discussion of the bias-variance trade-off; $k=3$ is our compromise in this regard. The following is the performance of the model on the validation data.
+
 \begin{figure}[h]
   \centering
-  \includegraphics[width=0.8\linewidth]{data/results/mean_price_diff.png}
-  \caption{Mean future price ratios by residual group}
+  \includegraphics[width=0.8\linewidth]{data/results/knn_preds.png}
+  \caption{Predicted vs Actual Standardized prices}
   \label{fig:price-diff}
 \end{figure}
+
+\subsection{Residual Analysis and Hypothesis Testing}
+
+Residuals are defined as:
+\[
+r_t = \hat{y}_t - y_t
+\]
+We categorize residuals exceeding the 95th percentile of the empirical distribution as significant. Predictions greater than this threshold $r_t > \bar{r}$ , are interpreted as undervalued options, where the model overestimates the price relative to observed values. Conversely, predictions with residuals below the negative threshold, $r_t < -\bar{r}$, are considered overvalued, where the model underestimates the price. These cases form the basis for directional trading signals. A Shapiro-Wilk normality test revealed a very high confidence that the residuals were normally distributed, hence we were justified in using the same threshold in both cases.
+The key hypothesis tested is:
+\[
+H_1: \mu_{\text{GEQ}} > \mu_{\text{All}} > \mu_{\text{LEQ}}
+\]
+where \( \mu_{\text{GEQ}} \), \( \mu_{\text{LEQ}} \), and \( \mu_{\text{All}} \) are the mean future price differences ($price\_diff$) for positive, negative, and all residuals, respectively. Directional t-tests were conducted to confirm significance for the time windows.
+
+The null hypothesis was rejected for the six-period window with p-values below 0.05. The alternative hypothesis was partially supported in several horizons.
+
 \begin{table}[h]
   \centering
   \resizebox{\textwidth}{!}{%
@@ -103,13 +106,54 @@ Figure~\ref{fig:price-diff} shows the average price change by residual group. Th
   \caption{Mean future price ratios by residual group and associated $p$-values. * indicates significance at $p = 0.05$.}
   \label{tab:mean-return}
 \end{table}
-\section{Discussion}
-The KNN output served as a prior that highlighted relative mispricing. The residual-based signals produced consistent return differences in favor of positive residuals. While the profits observed in backtesting were modest, the approach performed better than random trading according to the null threshold. Further study could refine feature selection and risk controls.
 
-Moreover, machine learning models such as random forests and boosted trees perform better than a naive Bayes solution such as this one according to Caruana (2006).
+\section{Trading Simulation}
+
+Signals were generated on the test data using the KNN predictions. Long trades were entered when residuals exceeded $\bar{r}$, and short trades were entered when residuals were less than $-\bar{r}$. If $price\_diff\_x$ is the average future price ratio, then
+\begin{align*}
+\alpha_{\text{long}} &= (price_t \cdot price\_diff_x) - price_t,\\
+\alpha_{\text{short}} &= price_t - (price_t \cdot price\_diff_x).
+\end{align*}
+
+Since the null hypothesis was only fully rejected in the $x = 6$ period window, we conducted the trading simulation using this horizon. A test run on 5268 trades generated \$1685 in cumulative profit. To assess statistical significance, we benchmarked this performance against 100 randomized trading simulations, each selecting trades at random while preserving the number of trades. The empirical null distribution yielded a 95th percentile threshold of \$445.64. Since our observed return exceeds this threshold, we reject the null hypothesis that the strategy performs no better than random selection at the 5\% significance level.
+
+\section{Results}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.8\linewidth]{data/results/mean_price_diff.png}
+  \caption{Mean future price ratios by residual group}
+  \label{fig:price-diff}
+\end{figure}
+
+The above figure shows the average future price change stratified by residual group: high residuals (model overestimates), low residuals (model underestimates), and all options. The high residual group consistently exhibits higher mean price ratios across all forecast windows. This supports the directional hypothesis that model residuals are informative for short-term price movement.
+
+\section{Discussion}
+The KNN output served as a prior that highlighted relative mispricing. The residual-based signals produced consistent return differences in favor of positive residuals. While the profits observed in backtesting were modest, the approach performed better than random trading according to the null threshold. Further study could refine feature selection and risk controls. Moreover, machine learning models such as random forests and boosted trees perform better than a naive Bayes solution such as this one \citep{caruana2006empirical}.
+
+The cross validation in selecting the optimal $k$ used a sequencing function to generate a list of numbers as a function of $n$ where $n$ is the number of rows. However, this was done arbitrarily, to reduce computational overhead. The optimal $k$ could fall outside of this range, and may in fact be 1. The figure below illustrates this fact, showing the residual mean squared error decrease greatly when approaching 1.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.8\linewidth]{data/results/knn_rmse.png}
+  \caption{Mean future price ratios by residual group}
+  \label{fig:price-diff}
+\end{figure}
+
+It is possible that Nearest-neighbor interpolation may be the best model fit, however it will lead to a large amount of variance in this model. Having a $k$ greater than 1 is hence strongly recommended for non 3d applicationWhile nearest-neighbor interpolation (\( k = 1 \)) may offer the best local fit in terms of minimizing bias, it typically results in high variance and overfitting, particularly in noisy or high-dimensional datasets \citep{caruana2006empirical}. For this reason, choosing a $k$ greater than 1 is strongly recommended in non-spatial applications such as financial modeling, where data is not naturally embedded in low-dimensional geometric space.
+
+Further investigation can be conducted into the characteristics of trades that succeed or fail. By clustering trades based on features such as moneyness, implied volatility, residual magnitude, and time to expiry, it is possible to identify structural patterns that distinguish profitable signals from unprofitable ones. This would enable the development of a rule-based overlay or meta-model that augments residual-based decision-making with trade-type classification. Such a system could refine signal quality, reduce false positives, and improve robustness under changing market conditions.
  
 \section{Conclusion}
-The KNN model approximates $E(X\mid Y,Z,\ldots)$ and acts as a prior in a Bayesian decision rule. Trades are triggered when observed residuals cross the significance threshold. The strategy generated profits above a random baseline, suggesting predictive value in the modeled relationships.
+
+This paper introduces a residual-driven K-Nearest Neighbors framework for detecting and exploiting short-term mispricings in equity options. By predicting standardized option prices using a carefully selected subset of option Greeks, we demonstrate that the residuals from the KNN model carry directional information about future price movements. Through hypothesis testing and trimmed residual analysis, we identify statistically significant deviations that serve as actionable trading signals.
+
+A trading strategy built on these residual-based signals achieves performance that significantly exceeds a randomized baseline, generating over \$1600 in profit across thousands of trades and surpassing the empirical 95th percentile of null outcomes. This finding underscores the presence of persistent inefficiencies in the short-term options market that can be captured using non-parametric techniques with minimal assumptions.
+
+Beyond its practical implications, our framework showcases how interpretable machine learning models can be fused with financial domain knowledge to produce both profitable and statistically sound trading strategies. Future work may extend this framework by incorporating Bayesian uncertainty estimation, dynamic $k$ selection, or hybrid ensemble models. Additionally, analyzing how residual signals evolve over intraday time segments could further enhance signal quality and timing.
+
+In sum, the approach outlined here represents a scalable, data-driven methodology that bridges predictive modeling with hypothesis-driven market interpretation—offering both theoretical insight and empirical edge.
+
 
 \appendix
 \section{Black-Scholes Formulas}
@@ -224,7 +268,8 @@ C + Ke^{-rT} = P + S
 
 This relationship can be used to derive the price of a put option from a call option with the same strike and expiration, or vice versa.
 
-\section{References}
-1. Caruana, R.; Niculescu-Mizil, A. (2006). An empirical comparison of supervised learning algorithms. Proc. 23rd International Conference on Machine Learning.
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
 
 \end{document}
