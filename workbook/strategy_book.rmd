@@ -555,7 +555,8 @@ These will be combined to measure $\alpha_\text{signal}$
 
 ```{r}
 test = read.csv("../data/processed/option_data_with_future_prices_7_9.csv")
-final_results <- predict_standardized_price(k_value = optimal_k, predictors = predictor_list, validation = test)
+final_results <- predict_standardized_price(k_value = optimal_k,
+                                            predictors = predictor_list, validation = test)
 residuals <- (final_results$predictions - final_results$actual)
 
 significance_threshold <- qnorm(0.95, mean(residuals), sd(residuals))
@@ -593,7 +594,8 @@ for (i in 1:100){
     (test$latest_trade_price[sample_indices]*test$price_diff_6_periods[sample_indices]))
   } else {
     returns = 100 * (
-    (test$latest_trade_price[sample_indices]*test$price_diff_6_periods[sample_indices])-test$latest_trade_price[sample_indices])
+    (test$latest_trade_price[sample_indices]*test$price_diff_6_periods[sample_indices])
+    -test$latest_trade_price[sample_indices])
   }
   null_returns = c(sum(returns, na.rm = TRUE), null_returns)
 }
@@ -604,3 +606,252 @@ cat("Random trade null returns lower bound threshold", null_threshold)
 
 We can hence reject the null hypothesis
 
+
+# K-Means Clustering Analysis of Trade Performance
+
+## Theoretical Framework
+
+K-means clustering partitions trades into $k$ distinct clusters based on feature similarity. The algorithm minimizes within-cluster sum of squares (WCSS):
+
+$$
+\text{WCSS} = \sum_{i=1}^{k} \sum_{x \in C_i} ||x - \mu_i||^2
+$$
+
+where $C_i$ represents cluster $i$ and $\mu_i$ is the centroid of cluster $i$. Each trade is assigned to the cluster with the nearest centroid:
+
+$$
+\text{cluster}(x) = \arg\min_{i} ||x - \mu_i||^2
+$$
+
+## Trade Classification Framework
+
+We classify each trade outcome based on its realized profit/loss:
+
+$$
+\text{Outcome}_i = \begin{cases}
+\text{Profit} & \text{if } \text{PnL}_i > 0 \\
+\text{Loss} & \text{if } \text{PnL}_i \leq 0
+\end{cases}
+$$
+
+where $\text{PnL}_i$ is calculated from the 6-period price differential as established in our hypothesis testing.
+
+## Statistical Hypothesis for Cluster Separation
+
+We test whether profitable and unprofitable trades are distributed differently across clusters:
+
+$$
+H_0: P(\text{Profit}|\text{Cluster}_i) = P(\text{Profit}) \quad \forall i
+$$
+
+$$
+H_1: \exists i \text{ such that } P(\text{Profit}|\text{Cluster}_i) \neq P(\text{Profit})
+$$
+
+Significant differences in success rates across clusters would indicate that certain feature combinations are systematically associated with trade outcomes.
+
+## Implementation
+
+### Trade P&L Calculation
+
+Populate a data frame with the metrics calculated in our analysis
+
+
+```{r trade_pnl_calculation, message=FALSE, warning=FALSE}
+feature_cols <- predictor_list
+
+calculate_trade_pnl <- function(data, residual_threshold = 0.95) {
+  final_results <- predict_standardized_price(k_value = optimal_k, predictors = predictor_list, validation = data)
+  residuals <- final_results$predictions - final_results$actual
+
+  threshold <- significance_threshold
+  neg_threshold <- -significance_threshold
+
+  data$residual <- residuals
+  data$predicted_price <- final_results$predictions
+  data$trade_signal <- ifelse(residuals >= threshold, "long",
+                              ifelse(residuals <= neg_threshold, "short", "none"))
+
+  data$pnl_6_periods <- ifelse(data$trade_signal == "long",
+                               
+                               (data$latest_trade_price * data$price_diff_6_periods) - data$latest_trade_price,
+                               ifelse(data$trade_signal == "short",
+                                      
+                                      data$latest_trade_price - (data$latest_trade_price * data$price_diff_6_periods),
+                                      0))
+
+  trades <- data[data$trade_signal != "none", ]
+  return(trades)
+}
+
+trades <- calculate_trade_pnl(test)
+long_trades <- trades[trades$trade_signal == "long", ]
+short_trades <- trades[trades$trade_signal == "short", ]
+```
+
+### K-Means Clustering: Long and Short Separately
+
+Calculate Within-Cluster Sum of Squares. Lower WCSS values indicate tighter, more compact clusters. It's a key component in the elbow method for determining the optimal number of clusters in a dataset.
+
+```{r kmeans_by_side}
+kmeans_plot <- function(data, k_range = 1:10, label = "") {
+  cluster_data <- data[complete.cases(data[, feature_cols]), feature_cols]
+  cluster_data_scaled <- scale(cluster_data)
+
+  set.seed(seed_num)
+  wcss <- numeric(length(k_range))
+  for (k in k_range) {
+    wcss[k] <- kmeans(cluster_data_scaled, centers = k, nstart = 25)$tot.withinss
+  }
+
+  plot(k_range, wcss[k_range], type = "b", pch = 19, 
+       main = paste("Elbow Method (", label, ")"),
+       xlab = "Number of Clusters (k)", ylab = "WCSS")
+}
+kmeans_analysis <- function(data, k) {
+  cluster_data <- data[complete.cases(data[, feature_cols]), feature_cols]
+  cluster_data_scaled <- scale(cluster_data)
+  kmeans_result <- kmeans(cluster_data_scaled, centers = k, nstart = 25)
+
+  data_complete <- data[complete.cases(data[, feature_cols]), ]
+  data_complete$cluster <- kmeans_result$cluster
+  data_complete$profit_loss <- ifelse(data_complete$pnl_6_periods > 0, "Profit", "Loss")
+  return(data_complete)
+}
+
+long_clusters <- kmeans_plot(long_trades, label = "Long Trades")
+short_clusters <- kmeans_plot(short_trades, label = "Short Trades")
+
+```
+
+Optimal k for long trades is 3, and optimal k for short trades is 5, using the elbow method.
+
+```{r}
+long_clusters <- kmeans_analysis(long_trades, k = 3)
+short_clusters <- kmeans_analysis(short_trades, k = 5)
+```
+
+
+### Cluster Analysis
+
+Conduct the hypothesis test to see if clustering has influenced the probability of profit, such that $P(\text{Profit}|\text{Cluster}_i) \neq P(\text{Profit})$
+
+
+```{r cluster_analysis_and_summary}
+cluster_summary <- function(clustered_trades, label) {
+  cat("\n---\n", label, "\n---\n")
+  tab <- table(clustered_trades$cluster, clustered_trades$profit_loss)
+  print(tab)
+
+  cat("\nProfit Rate by Cluster:\n")
+  for (i in sort(unique(clustered_trades$cluster))) {
+    subset <- clustered_trades[clustered_trades$cluster == i, ]
+    pr <- mean(subset$profit_loss == "Profit", na.rm = T)
+    cat("Cluster", i, ":", round(pr * 100, 2), "% (n =", nrow(subset), ")\n")
+  }
+
+  chi <- chisq.test(tab)
+  cat("\nChi-Square p-value:", round(chi$p.value, 4), "\n")
+  cat("Chi-Square statistic:", round(chi$statistic, 4), "\n")
+}
+
+cluster_summary(long_clusters, "Long Trades")
+cluster_summary(short_clusters, "Short Trades")
+```
+It looks like we can confidently reject the null hypothesis. 
+
+Since long trades don't contain a single profit rate cluster over 50%, it will be omitted in further investigation. It will also be helpful to view cluster performance by feature, which is done below by getting the mean predictor value per cluster.
+
+```{r}
+cluster_summary <- aggregate(cbind(delta, moneyness, implied_volatility, rho) ~ cluster, 
+                             data = short_clusters, FUN = mean)
+
+# Add P/L rate per cluster
+cluster_profit_rate = aggregate(profit_loss == "Profit" ~ cluster, 
+                                 data = short_clusters, FUN = mean)
+cluster_summary$profit_rate <- cluster_profit_rate[,2]
+print(cluster_summary)
+```
+
+These clusters are interesting let's put it into a dataframe, and assign profit rates a red to green gradient to help visualize cluster performance.
+
+```{r}
+
+color_gradient = c("red","orange","gold","green", "darkgreen")
+cluster_summary <- aggregate(cbind(delta, moneyness, implied_volatility, rho) ~ cluster, 
+                             data = short_clusters, FUN = mean)
+
+cluster_profit_rate <- aggregate(profit_loss == "Profit" ~ cluster, 
+                                 data = short_clusters, FUN = mean)
+cluster_summary$profit_rate <- cluster_profit_rate[,2]
+
+palette_func <- colorRampPalette(color_gradient)
+color_vals <- palette_func(length(cluster_summary$profit_rate))
+
+ranked_idx <- rank(cluster_summary$profit_rate * 100, ties.method = "first")
+cluster_colors <- color_vals[ranked_idx]
+
+cluster_summary$color <- cluster_colors
+
+short_clusters$profit_rate <- cluster_summary$profit_rate[match(short_clusters$cluster, cluster_summary$cluster)]
+
+cluster_perf_color <- setNames(cluster_summary$color, cluster_summary$profit_rate)
+
+library(patchwork)
+
+cluster_theme <- theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 9),
+    plot.title = element_text(size = 11, hjust = 0.5),
+    plot.margin = margin(5, 5, 5, 5)
+  )
+
+make_scatter <- function(xvar, yvar) {
+  ggplot(short_clusters, aes_string(x = xvar, y = yvar, color = "profit_rate")) +
+    geom_point(alpha = 0.8, size = 1.6) +
+    scale_color_gradientn(colors = color_gradient) +
+    labs(x = xvar, y = yvar, title = paste(xvar, "vs", yvar)) +
+    cluster_theme
+}
+
+pair_vars <- c("delta", "implied_volatility", "rho", "moneyness")
+plot_list <- list()
+
+for (i in 1:(length(pair_vars) - 1)) {
+  for (j in (i + 1):length(pair_vars)) {
+    plot_list[[length(plot_list) + 1]] <- make_scatter(pair_vars[i], pair_vars[j])
+  }
+}
+
+legend_plot <- ggplot(short_clusters, aes(x = 1, y = 1, color = profit_rate * 100)) +
+  geom_point() +
+  scale_color_gradientn(
+    colors = color_gradient,
+    name = "Profit Rate (%)",
+    limits = c(min(cluster_summary$profit_rate * 100), max(cluster_summary$profit_rate * 100)),
+    guide = guide_colorbar(
+      title.position = "top",
+      title.hjust = 0.5,
+      barwidth = unit(6, "cm"),
+      barheight = unit(0.4, "cm")
+    )
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9)
+  )
+
+scatter_grid <- wrap_plots(plotlist = plot_list, ncol = 3)
+scatter_grid / legend_plot + plot_layout(heights = c(20, 1))
+
+```
+The key points to note here are:
+
+1. Out the money puts are the most profitable trades across the board
+2. OTM Calls perform poorly copmared to ATM or even ITM ones
+3. ITM puts (high negative delta) perform poorly
+4. High implied volatility and high positive delta are correlated with profitability
