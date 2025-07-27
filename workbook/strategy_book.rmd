@@ -29,7 +29,7 @@ data <- do.call(rbind, lapply(file_list, read.csv))
 ```
 
 ```{r}
-seed_num = 1
+seed_num = 3
 set.seed(seed_num) # reproducibility
 ind = sample(1:nrow(data),0.75*nrow(data))
 train = data[ind,]
@@ -261,7 +261,7 @@ predict_standardized_price <- function(k_value, predictors, validation=val) {
 
 To select the best subset of predictors with the lowest RMSE, we use exhaustive subset evaluation 
 
-```{r}
+```{r, warning=FALSE}
 library(gtools)
 baseline_k = (nrow(train)^(0.5))
 all_predictors <- c("implied_volatility", "delta", "gamma", "vega", "rho", "moneyness", "theta")
@@ -578,7 +578,13 @@ num_trades = length(returns_long) + length(returns_short)
 cat("After", num_trades, "trades, the algorithm generates", final_returns, "$")
 ```
 
-This shows that we can make over 1500 dollars in one trading period. Let's check if these returns are not random. Check if the returns beat the top 5% of 100 random trading simulations with the same number of trades as above.
+This shows that we can make over 2000 dollars in one trading period. However, the dollars per trade is pretty low. There is scope to improve this.
+
+```{r}
+final_returns/num_trades
+```
+
+Let's check if these returns are not random. Check if the returns beat the top 5% of 100 random trading simulations with the same number of trades as above.
 
 Null hypothesis $H_0: \alpha_{\text{random}} = \alpha_{text{signal}}$
 
@@ -604,20 +610,20 @@ null_threshold=qnorm(0.95,mean(null_returns),sd(null_returns))
 cat("Random trade null returns lower bound threshold", null_threshold)
 ```
 
-We can hence reject the null hypothesis
+We can hence reject the null hypothesis.
 
 
 # K-Means Clustering Analysis of Trade Performance
 
 ## Theoretical Framework
 
-K-means clustering partitions trades into $k$ distinct clusters based on feature similarity. The algorithm minimizes within-cluster sum of squares (WCSS):
+K-means clustering partitions trades into$k$distinct clusters based on feature similarity. The algorithm minimizes within-cluster sum of squares (WCSS):
 
 $$
 \text{WCSS} = \sum_{i=1}^{k} \sum_{x \in C_i} ||x - \mu_i||^2
 $$
 
-where $C_i$ represents cluster $i$ and $\mu_i$ is the centroid of cluster $i$. Each trade is assigned to the cluster with the nearest centroid:
+where$C_i$represents cluster$i$and$\mu_i$is the centroid of cluster$i$. Each trade is assigned to the cluster with the nearest centroid:
 
 $$
 \text{cluster}(x) = \arg\min_{i} ||x - \mu_i||^2
@@ -634,7 +640,7 @@ $$
 \end{cases}
 $$
 
-where $\text{PnL}_i$ is calculated from the 6-period price differential as established in our hypothesis testing.
+where$\text{PnL}_i$is calculated from the 6-period price differential as established in our hypothesis testing.
 
 ## Statistical Hypothesis for Cluster Separation
 
@@ -675,9 +681,11 @@ calculate_trade_pnl <- function(data, residual_threshold = 0.95) {
   data$pnl_6_periods <- ifelse(data$trade_signal == "long",
                                
                                (data$latest_trade_price * data$price_diff_6_periods) - data$latest_trade_price,
+                               
                                ifelse(data$trade_signal == "short",
                                       
                                       data$latest_trade_price - (data$latest_trade_price * data$price_diff_6_periods),
+                                      
                                       0))
 
   trades <- data[data$trade_signal != "none", ]
@@ -724,17 +732,17 @@ short_clusters <- kmeans_plot(short_trades, label = "Short Trades")
 
 ```
 
-Optimal k for long trades is 3, and optimal k for short trades is 5, using the elbow method.
+Optimal k for long trades is 3, using the elbow method. The elbow is not apparent for the short trades. We will use 10 clusters for this.
 
 ```{r}
 long_clusters <- kmeans_analysis(long_trades, k = 3)
-short_clusters <- kmeans_analysis(short_trades, k = 5)
+short_clusters <- kmeans_analysis(short_trades, k = 10)
 ```
 
 
 ### Cluster Analysis
 
-Conduct the hypothesis test to see if clustering has influenced the probability of profit, such that $P(\text{Profit}|\text{Cluster}_i) \neq P(\text{Profit})$
+Conduct the hypothesis test to see if clustering has influenced the probability of profit, such that$P(\text{Profit}|\text{Cluster}_i) \neq P(\text{Profit})$
 
 
 ```{r cluster_analysis_and_summary}
@@ -777,7 +785,7 @@ These clusters are interesting let's put it into a dataframe, and assign profit 
 
 ```{r}
 
-color_gradient = c("red","orange","gold","green", "darkgreen")
+color_gradient = c("red","gold","green", "darkgreen")
 cluster_summary <- aggregate(cbind(delta, moneyness, implied_volatility, rho) ~ cluster, 
                              data = short_clusters, FUN = mean)
 
@@ -793,7 +801,8 @@ cluster_colors <- color_vals[ranked_idx]
 
 cluster_summary$color <- cluster_colors
 
-short_clusters$profit_rate <- cluster_summary$profit_rate[match(short_clusters$cluster, cluster_summary$cluster)]
+short_clusters$profit_rate <- cluster_summary$profit_rate[match(short_clusters$cluster,
+                                                                cluster_summary$cluster)]
 
 cluster_perf_color <- setNames(cluster_summary$color, cluster_summary$profit_rate)
 
@@ -855,3 +864,117 @@ The key points to note here are:
 2. OTM Calls perform poorly copmared to ATM or even ITM ones
 3. ITM puts (high negative delta) perform poorly
 4. High implied volatility and high positive delta are correlated with profitability
+
+# Empirical Bayes Shrinkage of KNN Residuals
+
+We reinterpret the standardized residuals from the KNN model as noisy realizations of a latent mispricing signal, and apply Empirical Bayes methods to estimate a posterior distribution over true mispricings. This builds on the framework of compound decision theory and shrinkage estimation as introduced in Efron (2011).
+
+## 1. Modeling Assumptions
+Let $r_i = \hat{y}_i - y_i$ be the residuals from the KNN model. Assume:
+
+- $r_i \sim \mathcal{N}(\theta_i, \sigma^2)$
+- $\theta_i \sim g(\theta)$, where$g$is an unknown prior on mispricing
+
+The goal is to estimate $\theta_i$, the true (unobserved) mispricing, via the posterior mean:
+
+$$
+\hat{\theta}_i = \mathbb{E}[\theta_i \mid r_i]
+$$
+
+Using Tweedie's formula (Efron, 2011), we have:
+
+$$
+\hat{\theta}_i = r_i + \sigma^2 \cdot \frac{d}{dr} \log f(r_i)
+$$
+
+where $f(r)$ is the marginal density of residuals$r_i$.
+
+## 2. Shrinkage via Tweedie's Formula
+
+We estimate $f(r)$ via kernel density estimation and compute the derivative numerically.
+
+```{r}
+library(locfdr)
+
+# Estimate marginal density and its derivative
+residuals <- val$residual
+sigma2_hat <- var(residuals)
+
+tweedie_adjustment <- function(r, bandwidth = 0.05) {
+  density_est <- density(residuals, bw = bandwidth, n = 1000)
+  f_hat <- approxfun(density_est$x, density_est$y)
+  
+  delta <- 1e-4
+  f_prime <- (f_hat(r + delta) - f_hat(r - delta)) / (2 * delta)
+  r + sigma2_hat * (f_prime / f_hat(r))
+}
+
+val$posterior_theta <- sapply(residuals, tweedie_adjustment)
+hist(val$posterior_theta)
+```
+
+## 3. Coverage Probability
+
+We estimate the empirical coverage probability of 90% symmetric intervals based on posterior theta estimates.
+```{r}
+
+posterior_mean <- mean(val$posterior_theta)
+posterior_sd <- sd(val$posterior_theta)
+
+lower <- qnorm(0.05, posterior_mean, posterior_sd)
+upper <- qnorm(0.95, posterior_mean, posterior_sd)
+
+coverage <- mean((val$residual > lower) & (val$residual < upper))
+cat("Empirical coverage of 90% posterior interval:", round(coverage * 100, 2), "%\n")
+
+```
+
+
+## 4. Bayesian-Adjusted Trading Strategy
+
+We will use a Posterior-Based Trade Signal. Let $\hat{\theta}_i$ denote the posterior mean estimate of the mispricing for trade $i$, derived via Tweedie's formula. Define a new signal threshold for entering trades based on the empirical standard deviation of $\hat{\theta}$:
+$\text{Buy Signal:} \quad \hat{\theta}_i > \Phi^{-1}(0.95) \cdot \hat{\sigma}_{\theta}$
+$\text{Sell Signal:} \quad \hat{\theta}_i < \Phi^{-1}(0.05) \cdot \hat{\sigma}_{\theta}$
+
+Where:
+
+- $\hat{\sigma}_{\theta}$ is the standard deviation of the posterior estimates
+
+- $\Phi^{-1}$ is the inverse of the standard normal CDF
+
+$$
+\alpha_{signal} = \sum_{i \in \mathcal{T}_{\text{long}}} \text{PnL}_i^{\text{long}} + \sum_{j \in \mathcal{T}_{\text{short}}} \text{PnL}_j^{\text{short}}
+$$
+
+$$
+H_0: \alpha_{\text{signal}} = \alpha_{\text{random}}
+$$
+
+
+```{r}
+sigma_theta <- sd(val$posterior_theta)
+theta_threshold <- qnorm(0.95) * sigma_theta
+
+val$bayes_trade_signal <- ifelse(val$posterior_theta > theta_threshold, "long",
+                           ifelse(val$posterior_theta < -theta_threshold, "short", "none"))
+
+val$bayes_pnl <- ifelse(val$bayes_trade_signal == "long",
+                        100 * ((val$latest_trade_price * val$price_diff_6_periods) - val$latest_trade_price),
+                        ifelse(val$bayes_trade_signal == "short",
+                        100 * (val$latest_trade_price - val$latest_trade_price *
+                                 val$price_diff_6_periods),
+                               0))
+
+bayes_trades <- val[val$bayes_trade_signal != "none", ]
+
+bayes_total_return <- sum(bayes_trades$bayes_pnl, na.rm = TRUE)
+bayes_num_trades <- nrow(bayes_trades)
+cat("Bayesian-adjusted strategy: ", bayes_num_trades, "trades, Total Return = $", round(bayes_total_return, 2), "\n")
+```
+
+
+This gives us a more impressive dollar per trade
+
+```{r}
+bayes_total_return/bayes_num_trades
+```

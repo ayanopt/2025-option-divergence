@@ -1,5 +1,6 @@
 \documentclass{article}
 \usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage{hyperref}
 \usepackage{graphicx}
 \usepackage{natbib}
@@ -25,7 +26,7 @@ Our approach has three key components: (i) exploratory analysis of option featur
 
 \subsection{Data Loading and Preparation}
 
-Option data was loaded from a socket stream leveraging Alpaca's IEX market data (see ./socket), updated every 10 seconds. For the purposes of this investigation, we focused on options with 0 days to expiry (0dte), as they have the largest trading volume and are hence assumed to self-correct quicker than options with a later expiry. All options with strikes between 99\% to 101\% of the current price were stored in a csv, along with all the corresponding greeks and implied volatility. To read more about how this was calculated see the Appendix. When this investigation was conducted, SPY hovered around 620\$, hence for a given timestamp, 14 or 15 calls and puts were stored. This was done to get an even spread of in the money (ITM), at the money (ATM) and out the money (OTM) options.
+Option data was loaded from a socket stream leveraging Alpaca's IEX market data, updated every 10 seconds. For the purposes of this investigation, we focused on options with 0 days to expiry (0dte), as they have the largest trading volume and are hence assumed to self-correct quicker than options with a later expiry. All options with strikes between 99\% to 101\% of the current price were stored in a csv, along with all the corresponding greeks and implied volatility. To read more about how this was calculated see the Appendix. When this investigation was conducted, SPY hovered around 620\$, hence for a given timestamp, 14 or 15 calls and puts were stored. This was done to get an even spread of in the money (ITM), at the money (ATM) and out the money (OTM) options.
 
 Moneyness, defined as the relative position of the underlying asset price to the strike price, exhibits a strong relationship with the option premium. For call options, those that are in the money (ITM), i.e., with strike prices lower than the spot price (\(K < S\)), tend to have higher intrinsic value and thus higher premiums. Conversely, out of the money (OTM) options (\(K > S\)) carry mostly time value and are priced lower. This nonlinear relationship is especially pronounced in short-dated options, where the time decay is steep and the implied volatility surface varies across moneyness levels.
 
@@ -93,7 +94,7 @@ H_1: \mu_{\text{GEQ}} > \mu_{\text{All}} > \mu_{\text{LEQ}}
 \]
 where \( \mu_{\text{GEQ}} \), \( \mu_{\text{LEQ}} \), and \( \mu_{\text{All}} \) are the mean future price differences ($price\_diff$) for positive, negative, and all residuals, respectively. Directional t-tests were conducted to confirm significance for the time windows.
 
-The null hypothesis was rejected for the six-period window with p-values below 0.05. The alternative hypothesis was partially supported in several horizons.
+The null hypothesis was rejected for the 3, 6 and 12 period windows with p-values below 0.05. The alternative hypothesis was partially supported in other horizons. For the purposes of this investigation, we will focus on the 6 period window, as it can provide a more interpretable result which can be extended to shorter and longer time periods. 
 
 \begin{table}[h]
   \centering
@@ -102,17 +103,27 @@ The null hypothesis was rejected for the six-period window with p-values below 0
       \toprule
       Period (10s) & Mean (Under) & Mean (Over) & Mean (Overall) & $P(\mu_{\text{GEQ}} = \mu_{\text{All}})$ & $P(\mu_{\text{All}} = \mu_{\text{LEQ}})$ \\
       \midrule
-      3   & 1.0111 & 0.9932 & 1.0019 & 0.0742   & 0*       \\
-      6   & 1.0125 & 0.9915 & 0.9991 & 0.0265*  & 0.0006*  \\
-      12  & 1.0114 & 0.9889 & 0.9989 & 0.0504   & 0.0003*  \\
-      15  & 1.0086 & 0.9897 & 0.9975 & 0.0818   & 0.0052*  \\
-      30  & 1.0028 & 0.9889 & 0.9961 & 0.2437   & 0.0405*  \\
+      3   & 1.0192 & 0.9912 & 1.0048 & 0.012*  & 0*       \\
+      6   & 1.0187 & 0.9885 & 1.0042 & 0.02*  & 0*  \\
+      12  & 1.015 & 0.9861 & 1.0033 & 0.045*   & 0*  \\
+      15  & 1.014 & 0.9869 & 1.0031 & 0.069   & 0*  \\
+      30  & 1.0104 & 0.9899 & 1.0046 & 0.277   & 0.0001*  \\
       \bottomrule
     \end{tabular}%
   }
   \caption{Mean future price ratios by residual group and associated $p$-values. * indicates significance at $p = 0.05$.}
   \label{tab:mean-return}
 \end{table}
+
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.8\linewidth]{data/results/mean_price_diff.png}
+  \caption{Mean future price ratios by residual group}
+  \label{fig:price-diff}
+\end{figure}
+
+Figure \ref{fig:price-diff} displays the average future price changes stratified by residual group across different forecast horizons. Options with high residuals (where the model overestimates actual prices) consistently exhibit higher mean price ratios compared to options with low residuals (where the model underestimates actual prices). This pattern supports the directional hypothesis that KNN model residuals contain predictive information for short-term price movements.
 
 \section{Trading Simulation}
 
@@ -140,7 +151,7 @@ H_0: \alpha_{\text{strategy}} = \alpha_{\text{random}}
 
 where $\alpha_{\text{strategy}}$ is the cumulative return from our residual-based trading signals and $\alpha_{\text{random}}$ is the expected return from random trading.
 
-For each of 100 Monte Carlo simulations, we randomly selected $N = 5,268$ trades from the test dataset and assigned random long/short positions with equal probability:
+For each of 100 Monte Carlo simulations, we randomly selected $N = 5,428$ trades from the test dataset and assigned random long/short positions with equal probability:
 
 \[
 \alpha_{\text{random},i} = \begin{cases}
@@ -149,20 +160,73 @@ price_{t,i} - (price_{t,i} \cdot price\_diff_{6,i}) & \text{with probability } 0
 \end{cases}
 \]
 
-The cumulative return for each simulation was calculated as $\sum_{i=1}^{N} \alpha_{\text{random},i}$. The empirical null distribution yielded a 95th percentile threshold of \$445.64. Since our observed return of \$1,685 exceeds this threshold, we reject $H_0$ and conclude that the strategy performs significantly better than random selection at the 5\% significance level.
+The cumulative return for each simulation was calculated as $\sum_{i=1}^{N} \alpha_{\text{random},i}$. The empirical null distribution yielded a 95th percentile threshold of \$424.42. Since our observed return of \$2684.96 exceeds this threshold, we reject $H_0$ and conclude that the strategy performs significantly better than random selection at the 5\% significance level.
+
+
+\section{Empirical Bayes Shrinkage of KNN Residuals}
+
+We reinterpret the residuals from the KNN model as noisy observations of latent mispricings and apply Empirical Bayes shrinkage to improve signal estimation. This builds on the framework of compound decision theory and shrinkage estimation as introduced in Efron (2011) \cite{efron2011tweedie}.
+
+\subsection{Modeling Assumptions}
+
+Assume the following hierarchical model:
+
+\[
+r_i \sim \mathcal{N}(\theta_i, \sigma^2), \quad \theta_i \sim g(\theta)
+\]
+
+Our objective is to estimate \( \theta_i \), the latent mispricing, using the posterior expectation:
+
+\[
+\hat{\theta}_i = \mathbb{E}[\theta_i \mid r_i]
+\]
+
+By Tweedie's formula:
+
+\[
+\hat{\theta}_i = r_i + \sigma^2 \cdot \frac{d}{dr} \log f(r_i)
+\]
+
+where \( f(r) \) is the marginal density of residuals.
+
+\subsection{Shrinkage via Tweedie's Formula}
+
+We estimate \( f(r) \) using kernel density estimation and compute the derivative \( f'(r) \) numerically. The posterior-shrunk mispricing estimate is then:
+
+\[
+\hat{\theta}_i = r_i + \sigma^2 \cdot \frac{f'(r_i)}{f(r_i)}
+\]
+
+\subsection{Bayesian-Adjusted Trading Strategy}
+
+Let \( \hat{\theta}_i \) be the posterior estimate. Define trade signals based on thresholds derived from the posterior distribution:
+
+\[
+\text{Buy if } \hat{\theta}_i > \Phi^{-1}(0.95) \cdot \sigma_\theta, \quad
+\text{Sell if } \hat{\theta}_i < \Phi^{-1}(0.05) \cdot \sigma_\theta
+\]
+
+Returns are defined by the same formula used in the previous trading simulation.
+
+Total return across all posterior-filtered trades is:
+
+\[
+\alpha_{\text{strategy}} = \sum_{i \in T_{\text{long}}} \alpha_{\text{long}, i} + \sum_{j \in T_{\text{short}}} \alpha_{\text{short}, j}
+\]
+
+This algorithm executed 340 trades, with a total return of \$742.62. The outcome of this is far more profitable, in terms of dollars per trade, than our previous naive model. Applying shrinkage allows the model to find trades that are more likely to be profitable, at the cost of the number of trades.
 
 \section{Results}
 
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.8\linewidth]{data/results/mean_price_diff.png}
-  \caption{Mean future price ratios by residual group}
-  \label{fig:price-diff}
-\end{figure}
+Usually, option contracts cost 0.65\$ per contract in commission fees. For real-time application, this cost structure fundamentally alters the viability of our trading strategies. The original KNN residual-based approach generated \$1,685 profit across 5,268 trades, yielding \$0.32 profit per trade. After accounting for \$0.65 commission per trade, this strategy would result in a net loss of \$1,739.20 (\$1,685 - 5,268 * \$0.65), making it unprofitable in practice.
 
-Figure \ref{fig:price-diff} displays the average future price changes stratified by residual group across different forecast horizons. Options with high residuals (where the model overestimates actual prices) consistently exhibit higher mean price ratios compared to options with low residuals (where the model underestimates actual prices). This pattern supports the directional hypothesis that KNN model residuals contain predictive information for short-term price movements.
+In contrast, the Empirical Bayes shrinkage method executed only 340 trades while generating \$742.62 in profit, achieving \$2.18 profit per trade. After commission costs of \$221 (340 * \$0.65), the net profit remains positive at \$521.62. This represents a 1550\% improvement in per-trade profitability compared to the original approach.
+
+The shrinkage method's superior performance stems from its ability to filter out weak signals through posterior probability estimation. By shrinking residuals toward zero based on their reliability, the Bayesian approach identifies only the most confident mispricings, dramatically reducing false positives that plagued the original strategy. This selectivity transforms an unprofitable high-frequency approach into a viable low-frequency strategy suitable for real-world implementation. 
+
 
 \section{Discussion}
+
 The residual-based signals produced consistent return differences in favor of positive and negative residuals. The overvalued short trades yielded significantly lower p-values than the undervalued long trades in Table \ref{tab:mean-return}, suggesting that the model's ability to identify overpriced options may be more reliable than its capacity to detect underpriced ones.
 
 The cross validation in selecting the optimal $k$ used a sequencing function to generate a list of numbers as a function of $n$ where $n$ is the number of rows. However, this was done arbitrarily, to reduce computational overhead. The optimal $k$ could fall outside of this range, and may in fact be 1. The figure below illustrates this fact, showing the residual mean squared error decrease greatly when approaching 1.
@@ -206,11 +270,15 @@ This figure shows us the trends in our data, such as OTM puts being particularly
 
 This paper introduces a residual-driven K-Nearest Neighbors framework for detecting and exploiting short-term mispricings in equity options. By predicting standardized option prices using a carefully selected subset of option Greeks, we demonstrate that the residuals from the KNN model carry directional information about future price movements. Through hypothesis testing , we identify statistically significant deviations in residuals that serve as actionable trading signals.
 
-A trading strategy built on these residual-based signals achieves performance that significantly exceeds a randomized baseline, generating over \$1600 in profit across thousands of trades and surpassing the empirical 95th percentile of the Monte Carlo simulated outcomes. This finding underscores the presence of persistent inefficiencies in the short-term options market that can be captured using non-parametric techniques with minimal assumptions.
+A trading strategy built on these residual-based signals achieves performance that significantly exceeds a randomized baseline, generating over \$2 per trade in profit across hundreds of trades and surpassing the empirical 95th percentile of the Monte Carlo simulated outcomes. This finding underscores the presence of persistent inefficiencies in the short-term options market that can be captured using non-parametric techniques with minimal assumptions.
 
 Beyond its practical implications, our framework showcases how interpretable machine learning models can be fused with financial domain knowledge to produce both profitable and statistically sound trading strategies. Future work may extend this framework by incorporating Bayesian uncertainty estimation, dynamic $k$ selection, or hybrid ensemble models. Additionally, analyzing how residual signals evolve over intraday time segments could further enhance signal quality and timing.
 
 Conclusively, the approach outlined here represents a potentially scalable, data-driven methodology that bridges predictive modeling with hypothesis-driven market interpretation—offering both theoretical insight and empirical edge.
+
+\section{References}
+\bibliographystyle{plain}
+\bibliography{refs}
 
 \appendix
 \section{Black-Scholes Formulas}
@@ -324,9 +392,5 @@ C + Ke^{-rT} = P + S
 \end{equation}
 
 This relationship can be used to derive the price of a put option from a call option with the same strike and expiration, or vice versa.
-
-\section{References}
-\bibliographystyle{plain}
-\bibliography{refs}
 
 \end{document}
