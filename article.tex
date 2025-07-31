@@ -5,7 +5,6 @@
 \usepackage{graphicx}
 \usepackage{natbib}
 \usepackage{booktabs}
-\usepackage[margin=1in]{geometry}
 \graphicspath{ {./data/results} }
 \title{K-NN Based Prior for Option Pricing Strategy}
 \author{Ayan Goswami}
@@ -206,15 +205,22 @@ Let \( \hat{\theta}_i \) be the posterior estimate. Define trade signals based o
 \text{Sell if } \hat{\theta}_i < \Phi^{-1}(0.05) \cdot \sigma_\theta
 \]
 
-Returns are defined by the same formula used in the previous trading simulation.
-
-Total return across all posterior-filtered trades is:
+Returns are defined by the same formula used in the previous trading simulation. Total return across all posterior-filtered trades is:
 
 \[
 \alpha_{\text{strategy}} = \sum_{i \in T_{\text{long}}} \alpha_{\text{long}, i} + \sum_{j \in T_{\text{short}}} \alpha_{\text{short}, j}
 \]
 
-This algorithm executed 340 trades, with a total return of \$742.62. The outcome of this is far more profitable, in terms of dollars per trade, than our previous naive model. Applying shrinkage allows the model to find trades that are more likely to be profitable, at the cost of the number of trades.
+This algorithm executed 340 trades, with a total return of \$742.62. The outcome of this is far more profitable, in terms of dollars per trade, than our previous naive model. Applying shrinkage allows the model to find trades that are more likely to be profitable, at the cost of the number of trades. Applying a similar $price\_diff$ investigation as with the regular residuals, we observe the following:
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=1\linewidth]{data/results/shrinkage_results.png}
+  \caption{Performance by residual type}
+  \label{fig:shrunk}
+\end{figure}
+
+This highlights the fact that the overvalued options $\mu_{LEQ}$ were far more significant in predicting future price decreases compared to undervalued options $\mu_{GEQ}$. The difference in significance is likely due to market participants overpaying for out-of-the-money options near expiry, which creates stronger downward corrections in overpriced contracts than upward corrections in underpriced ones. As a result, short signals on overvalued options are more reliable than long signals on undervalued options after shrinkage is applied. The success of the short signals has been explored with the help of clustering \ref{fig:clusters}.
 
 \section{Results}
 
@@ -248,7 +254,7 @@ While the profits observed in backtesting were modest, the approach performed si
 
 To better understand the drivers of trade success, we conducted K-means clustering on executed trades using key predictive features: \verb|delta|, \verb|gamma|, \verb|moneyness|, and \verb|rho|. 
 
-A Chi-squared test was conducted to determine if $P(\text{Profit} | \text{Cluster}) \neq P(\text{Profit})$ at $p=0.05$. This analysis revealed structurally distinct trade clusters with significantly different profit probabilities, particularly among short-sell trades. The following figure shows the 10 clusters created, by profitability.
+A Chi-squared test was conducted to determine if $P(\text{Profit} | \text{Cluster}) \neq P(\text{Profit})$ at $p=0.05$. This analysis revealed structurally distinct trade clusters with significantly different profit probabilities, particularly among short-sell trades. The long signal trades were weak in comparison, and didn't yield a cluster with a profitability over 50\%. The following figure shows the 10 clusters created, by profitability, for short-signal trades.
 
 \begin{figure}[h]
   \centering
